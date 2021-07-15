@@ -1,0 +1,29 @@
+name: Bulk Scrape
+description: This plugins combines two previous pluigns, bulk_url_scraper and scrape_with and adds functionality for scraping DVD/Movies as well
+version: 1.2
+url: https://github.com/stg-annon/CommunityScripts/tree/main/plugins/bulkScrape
+exec:
+  - python
+  - "{pluginDir}/bulk_scrape.py"
+interface: raw
+tasks:
+  - name: Create Scrape Tags
+    description: Create tags used by plugin, ie "scrape_with_tpdb"
+    defaultArgs:
+      mode: create
+  - name: Remove Scrape Tags
+    description: Removes all plugin related tags from scenes and deletes the tags.
+    defaultArgs:
+      mode: remove
+  - name: URL Scrape
+    description: Scrape scene information for all scenes with the control tag defined in the config. This action will only merge tags and overwrite all other previous scene information
+    defaultArgs:
+      mode: url_scrape
+  - name: Movie Scrape
+    description: Bulk URL scrape movies with missing front image and a defined url
+    defaultArgs:
+      mode: movie_scrape
+  - name: Fragment Scrape
+    description: run fragment scrapers on scenes with relevent fragment tag
+    defaultArgs:
+      mode: fragment_scrape
