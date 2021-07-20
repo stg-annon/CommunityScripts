@@ -314,18 +314,35 @@ class ScrapeController:
 				log.info(f'Creating missing studio {studio.get("name")}')
 				update_data['studio_id'] = self.client.createStudio(studio)
 
-		if scraped_data.get('movies') and update_data['studio_id']:
+		if scraped_data.get('movies'):
 			movie_ids = list()
 			for movie in scraped_data.get('movies'):
 				if movie.get('stored_id'):
 					movie_id = movie.get('stored_id')
 					movie_ids.append( {'movie_id':movie_id, 'scene_index':None} )
 				elif self.create_missing_movies and movie.get('name') != "":
-					if update_data['studio_id']:
-						movie['studio_id'] = update_data['studio_id']
 					log.info(f'Create missing movie: "{movie.get("name")}"')
-					movie_id = self.client.createMovieByName(movie)
-					movie_ids.append( {'movie_id':movie_id, 'scene_index':None} )
+					
+					movie_data = {
+						'name': movie.get('name')
+					}
+
+					if movie.get('url'):
+						movie_data['url'] = movie.get('url')
+
+					if movie.get('synopsis'):
+						movie_data['synopsis'] = movie.get('synopsis')
+					if movie.get('date'):
+						movie_data['date'] = movie.get('date')
+					if movie.get('aliases'):
+						movie_data['aliases'] = movie.get('aliases')
+
+					try:
+						movie_id = self.client.createMovieByName(movie_data)
+						movie_ids.append( {'movie_id':movie_id, 'scene_index':None} )
+					except Exception as e:
+						log.error('update error')
+
 			if len(movie_ids) > 0:
 				update_data['movies'] = movie_ids
 
