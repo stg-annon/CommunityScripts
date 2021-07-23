@@ -107,24 +107,39 @@ class StashInterface:
             result = self.__callGraphQL(query)
         log.debug("ScanResult" + str(result))
 
-    def findTagIdWithName(self, name):
-        query = """
-            query {
-                allTags {
-                id
-                name
-                }
-            }
-        """
-
-        result = self.__callGraphQL(query)
-
-        for tag in result["allTags"]:
+    def get_tag_id_from_name(self, name):
+        for tag in self.find_tags(q=name):
             if tag["name"] == name:
                 return tag["id"]
-        return None
+            if any(name == a for a in tag["aliases"] ):
+                return tag["id"]
 
-    def createTagWithName(self, name):
+    def find_tags(self, q="", f={}):
+        query = """
+            query FindTags($filter: FindFilterType, $tag_filter: TagFilterType) {
+                findTags(filter: $filter, tag_filter: $tag_filter) {
+                    count
+                    tags {
+                        ...stashTag
+                    }
+                }
+            }`
+        """
+
+        variables = {
+        "filter": {
+            "direction": "ASC",
+            "per_page": -1,
+            "q": q,
+            "sort": "name"
+        },
+        "tag_filter": f
+        }
+        
+        result = self.__callGraphQL(query, variables)
+        return result["findTags"]["tags"]
+
+    def create_tag(self, tag):
         query = """
             mutation tagCreate($input:TagCreateInput!) {
                 tagCreate(input: $input){
@@ -132,6 +147,11 @@ class StashInterface:
                 }
             }
         """
+
+        name = tag.get('name')
+        if not name:
+            return None
+
         variables = {'input': {
             'name': name
         }}
@@ -139,7 +159,7 @@ class StashInterface:
         result = self.__callGraphQL(query, variables)
         return result["tagCreate"]["id"]
 
-    def destroyTag(self, tag_id):
+    def destroy_tag(self, tag_id):
         query = """
             mutation tagDestroy($input: TagDestroyInput!) {
                 tagDestroy(input: $input)
@@ -151,28 +171,11 @@ class StashInterface:
 
         self.__callGraphQL(query, variables)
 
-    def getSceneById(self, scene_id):
+    def get_scene_by_id(self, scene_id):
         query = """
             query findScene($id: ID!) {
                 findScene(id: $id) {
-                    id
-                    title
-                    details
-                    url
-                    date
-                    rating
-                    galleries {
-                        id
-                    }
-                    studio {
-                        id
-                    }
-                    tags {
-                        id
-                    }
-                    performers {
-                        id
-                    }
+                    ...stashScene
                 }
             }
         """
@@ -185,35 +188,8 @@ class StashInterface:
 
         return result.get('findScene')
 
-    def findRandomSceneId(self):
-        query = """
-            query findScenes($filter: FindFilterType!) {
-                findScenes(filter: $filter) {
-                    count
-                    scenes {
-                        id
-                        tags {
-                            id
-                        }
-                    }
-                }
-            }
-        """
-
-        variables = {'filter': {
-            'per_page': 1,
-            'sort': 'random'
-        }}
-
-        result = self.__callGraphQL(query, variables)
-
-        if result["findScenes"]["count"] == 0:
-            return None
-
-        return result["findScenes"]["scenes"][0]
-
-    # This method wipes rating, tags, performers, gallery and movie if omitted
-    def updateScene(self, scene_data):
+    # This method will overwrite all provided data fields
+    def update_scene_overwrite(self, scene_data):
         query = """
             mutation sceneUpdate($input:SceneUpdateInput!) {
                 sceneUpdate(input: $input) {
@@ -226,36 +202,7 @@ class StashInterface:
         result = self.__callGraphQL(query, variables)
         return result["sceneUpdate"]["id"]
 
-    def updateGallery(self, gallery_data):
-        query = """
-            mutation galleryUpdate($input: GalleryUpdateInput!) {
-                galleryUpdate(input: $input) {
-                    id
-                }
-            }
-        """
-
-        variables = {'input': gallery_data}
-
-        result = self.__callGraphQL(query, variables)
-        return result["galleryUpdate"]["id"]
-
-    def updateImage(self, image_data):
-        query = """
-            mutation($input: ImageUpdateInput!) {
-                imageUpdate(input: $input) {
-                    id
-                }
-            }
-        """
-
-        variables = {'input': image_data}
-
-        result = self.__callGraphQL(query, variables)
-        return result["imageUpdate"]["id"]
-
-
-    def createPerformer(self, performer_data):
+    def create_performer(self, performer_data):
         name = performer_data.get("name")
         query = """
             mutation($name: String!) {
@@ -272,8 +219,8 @@ class StashInterface:
         result = self.__callGraphQL(query, variables)
         performer_data["id"] = result.get('performerCreate').get('id')
 
-        return self.updatePerformer(performer_data)
-    def updatePerformer(self, performer_data):
+        return self.update_performer(performer_data)
+    def update_performer(self, performer_data):
         query = """
             mutation performerUpdate($input:PerformerUpdateInput!) {
                 performerUpdate(input: $input) {
@@ -286,17 +233,16 @@ class StashInterface:
         result = self.__callGraphQL(query, variables)
         return result["performerUpdate"]["id"]
 
-    def findOrCreateMovie(self, movie_data):
-        search = self.findMovieByName(movie_data.get('name'))
-        if search:
-            for key in search.keys():
-                if key in movie_data:
-                    search[key] = movie_data[key]
-            return self.updateMovie(search)
+    def find_or_create_movie(self, movie_data, update_movie=False):
+        movie_stashid = self.find_movie(movie_data)
+        if movie_stashid:
+            if update_movie:
+                movie_data['id'] = movie_stashid
+                self.update_movie(movie_data)
+            return movie_stashid
         else:
-            return self.createMovieByName(movie_data)
-
-    def createMovieByName(self, movie_data):
+            return self.create_movie(movie_data)
+    def create_movie(self, movie_data):
         name = movie_data.get("name")
         query = """
             mutation($name: String!) {
@@ -313,8 +259,8 @@ class StashInterface:
         result = self.__callGraphQL(query, variables)
         movie_data["id"] = result.get('movieCreate').get('id')
 
-        return self.updateMovie(movie_data)
-    def updateMovie(self, movie_data):
+        return self.update_movie(movie_data)
+    def update_movie(self, movie_data):
         query = """
             mutation MovieUpdate($input:MovieUpdateInput!) {
                 movieUpdate(input: $input) {
@@ -327,7 +273,7 @@ class StashInterface:
         result = self.__callGraphQL(query, variables)
         return result["movieUpdate"]["id"]
 
-    def createStudio(self, studio_data):
+    def create_studio(self, studio_data):
         name = studio_data.get("name")
         query = """
             mutation($name: String!) {
@@ -343,8 +289,8 @@ class StashInterface:
         result = self.__callGraphQL(query, variables)
         studio_data["id"] = result.get("studioCreate").get("id")
 
-        return self.updateStudio(studio_data)
-    def updateStudio(self, studio_data):
+        return self.update_studio(studio_data)
+    def update_studio(self, studio_data):
         query = """
             mutation StudioUpdate($input:StudioUpdateInput!) {
                 studioUpdate(input: $input) {
@@ -356,6 +302,42 @@ class StashInterface:
 
         result = self.__callGraphQL(query, variables)
         return result["studioUpdate"]["id"]
+
+    def get_scenes_with_tag(self, tag):
+        tag_id = None
+        if tag.get('id'):
+            tag_id = tag.get('id')
+        elif tag.get('name'):
+            tag_id = self.get_tag_id_from_name(tag.get('name'))
+
+        scene_filter = {
+            "tags": {
+                "value": [tag_id],
+                "modifier": "INCLUDES"
+            }
+        }
+        return self.find_scenes(f=scene_filter)
+
+    def find_scenes(self, f={}):
+        query = """
+        query FindScenes($filter: FindFilterType, $scene_filter: SceneFilterType, $scene_ids: [Int!]) {
+            findScenes(filter: $filter, scene_filter: $scene_filter, scene_ids: $scene_ids) {
+                count
+                scenes {
+                    ...stashScene
+                }
+            }
+        }
+        """
+        variables = {
+            "filter": { "per_page": -1 },
+            "scene_filter": f
+        }
+            
+        result = self.__callGraphQL(query, variables)
+        scenes = result.get('findScenes').get('scenes')
+
+        return scenes
 
 
     # Returns all scenes for the given regex
@@ -407,175 +389,12 @@ class StashInterface:
             log.debug(f"Regex found a total of {len(scenes)} scene(s)")
         return scenes
 
-    def findGalleriesByTags(self, tag_ids):
-        return self.__findGalleriesByTags(tag_ids)
-
-    # Searches for galleries with given tags
-    # Requires a list of tagIds
-    def __findGalleriesByTags(self, tag_ids, page=1):
-        query = """
-        query findGalleriesByTags($tags: [ID!], $page: Int) {
-            findGalleries(
-                gallery_filter: { tags: { value: $tags, modifier: INCLUDES_ALL } }
-                filter: { per_page: 100, page: $page }
-            ) {
-                count
-                galleries {
-                    id
-                    scenes {
-                        id
-                    }
-                }
-            }
+    def get_scenes_with_tags(self, tag_ids):
+        scene_filter = {
+            "tags": { "modifier": "INCLUDES_ALL", "value": tag_ids } 
         }
-        """
+        return self.find_scenes(f=scene_filter)
 
-        variables = {
-            "tags": tag_ids,
-            "page": page
-        }
-
-        result = self.__callGraphQL(query, variables)
-
-        galleries = result.get('findGalleries').get('galleries')
-
-        # If page is full, also scan next page(s) recursively:
-        if len(galleries) == 100:
-            next_page = self.__findGalleriesByTags(tag_ids, page + 1)
-            for gallery in next_page:
-                galleries.append(gallery)
-
-        return galleries
-
-    def findGalleries(self, gallery_filter=None):
-        return self.__findGalleries(gallery_filter)
-
-    def __findGalleries(self, gallery_filter=None, page=1):
-        per_page = 100
-        query = """
-            query($studio_ids: [ID!], $page: Int, $per_page: Int) {
-                findGalleries(
-                    gallery_filter: { studios: { modifier: INCLUDES, value: $studio_ids } }
-                    filter: { per_page: $per_page, page: $page }
-                ) {
-                    count
-                    galleries {
-                        id
-                        studio {id}
-                    }
-                }
-            }
-        """
-
-        variables = {
-            "page": page,
-            "per_page": per_page
-        }
-        if gallery_filter:
-            variables['gallery_filter'] = gallery_filter
-
-        result = self.__callGraphQL(query, variables)
-
-        galleries = result.get('findGalleries').get('galleries')
-
-        # If page is full, also scan next page(s) recursively:
-        if len(galleries) == per_page:
-            next_page = self.__findGalleries(gallery_filter, page + 1)
-            for gallery in next_page:
-                galleries.append(gallery)
-
-        return galleries
-
-    def findImages(self, image_filter=None):
-        return self.__findImages(image_filter)
-
-    def __findImages(self, image_filter=None, page=1):
-        per_page = 1000
-        query = """
-        query($per_page: Int, $page: Int, $image_filter: ImageFilterType) {
-            findImages(image_filter: $image_filter ,filter: { per_page: $per_page, page: $page }) {
-                count
-                images {
-                    id
-                    title
-                    studio {
-                        id
-                    }
-                    performers {
-                        id
-                    }
-                    tags {
-                        id
-                    }
-                    rating
-                    galleries {
-                        id
-                    }
-                }
-            }
-        }
-        """
-
-        variables = {
-            'per_page': per_page,
-            'page': page
-        }
-        if image_filter:
-            variables['image_filter'] = image_filter
-
-        result = self.__callGraphQL(query, variables)
-
-        images = result.get('findImages').get('images')
-
-        if len(images) == per_page:
-            next_page = self.__findImages(image_filter, page + 1)
-            for image in next_page:
-                images.append(image)
-
-        return images
-
-    def updateImageStudio(self, image_ids, studio_id):
-        query = """
-        mutation($ids: [ID!], $studio_id: ID) {
-            bulkImageUpdate(input: { ids: $ids, studio_id: $studio_id }) {
-                id
-            }
-        }
-        """
-
-        variables = {
-            "ids": image_ids,
-            "studio_id": studio_id
-        }
-
-        self.__callGraphQL(query, variables)
-
-    def findScenesByTags(self, tag_ids):
-        return self.__findScenesByTags(tag_ids)
-
-    def __findScenesByTags(self, tag_ids):
-        query = """
-        query($tags: [ID!]) {
-            findScenes(
-                scene_filter: { tags: { modifier: INCLUDES_ALL, value: $tags } }
-                filter: { per_page: -1 }
-            ) {
-                count
-                scenes {
-                    ...stashScene
-                }
-            }
-        }
-        """
-
-        variables = {
-            "tags": tag_ids
-        }
-
-        result = self.__callGraphQL(query, variables)
-        scenes = result.get('findScenes').get('scenes')
-
-        return scenes
 
     # Scrape
     def scrapeSceneURL(self, url):
@@ -593,7 +412,7 @@ class StashInterface:
 
         result = self.__callGraphQL(query, variables)
         return result.get('scrapeSceneURL')
-
+    
     def scrapeMovieURL(self, url):
         query = """
             query($url: String!) {
@@ -642,21 +461,37 @@ class StashInterface:
           "primary_tag_id": primary_tag_id
         }
 
+    def find_movie(self, movie):
+        movies = self.find_movies(q=movie['name'])
+        for m in movies:
+            if movie.get('name') and m.get('name') and movie['name'] == m['name']:
+                return m
+
+    def find_movies(self, q="", f={}):
+        query = """
+            query FindMovies($filter: FindFilterType, $movie_filter: MovieFilterType) {
+                findMovies(filter: $filter, movie_filter: $movie_filter) {
+                    count
+                    movies {
+                        ...stashMovie
+                    }
+                }
+            }
+        """
+
+        variables = {
+            "filter": {
+                "per_page": -1,
+                "q": q
+            },
+            "movie_filter": f
+	    }
+        
+        result = self.__callGraphQL(query, variables)
+        return result.get('findMovies').get('movies')
 
 
-
-
-    def findMovieByName(self, name):
-        query = "query {allMovies {id name aliases date rating studio {id name} director synopsis}}"
-
-        response = self.__callGraphQL(query)
-
-        for movie in response.get('allMovies'):
-            if movie.get('name') == name:
-                return movie
-        return None
-
-    def findMoviesByUrl(self):
+    def get_movies_with_url(self):
         query = "query {allMovies {id name aliases url synopsis scene_count}}"
 
         movies = []
@@ -667,7 +502,7 @@ class StashInterface:
                 movies.append(movie)
         return movies
 
-    def findMoviesMissingFrontImage(self):
+    def get_movies_missing_front_image(self):
         query = """
             query { findMovies( movie_filter: {is_missing: "front_image"} filter: {per_page:-1}) {
                 count
@@ -678,7 +513,7 @@ class StashInterface:
         response = self.__callGraphQL(query)
         return response.get('findMovies').get('movies')
 
-    def findScenesWherePathLike(self, pathPart):
+    def find_scenes_where_path_like(self, pathPart):
 
         query = """
             query FindScenes($partial_path: String!) {
@@ -688,16 +523,9 @@ class StashInterface:
               ) {
                 count
                 scenes{
-                  title
-                  date
-                  path
-                  scene_markers {
-                    primary_tag {id, name}
-                    seconds
-                    __typename
+                  id
                   }
                 }
-                __typename
               }
             }
         """
@@ -708,10 +536,10 @@ class StashInterface:
         }
 
         result = self.__callGraphQL(query, variables)
-        return result.get('findScene').get('scenes')
+        return result.get('findScenes').get('scenes')
 
 
-    def findMarkersBySceneId(self, sceneID):
+    def get_scene_markers(self, sceneID):
         query = """
             query { findScene(id: $sceneID) {
                 title
@@ -732,7 +560,7 @@ class StashInterface:
         result = self.__callGraphQL(query, variables)
         return result.get('findScene').get('scene_markers')
 
-    def listSceneScrapers(self, type):
+    def list_scene_scrapers(self, type):
         query = """
         query listSceneScrapers {
             listSceneScrapers {
@@ -751,7 +579,7 @@ class StashInterface:
                 ret.append(r["id"])
         return ret
 
-    def listSceneFragmentScrapers(self, type):
+    def list_scene_fragment_scrapers(self, type):
         query = """
         query listSceneScrapers {
             listSceneScrapers {
@@ -769,25 +597,6 @@ class StashInterface:
             if type in r["scene"]["supported_scrapes"]:
                 ret.append(r["id"])
         return ret
-
-    def getScenesWithTag(self, tag):
-        tagID = self.findTagIdWithName(tag)
-        query = """query findScenes($scene_filter: SceneFilterType!) {
-          findScenes(
-           scene_filter: $scene_filter
-           filter: {per_page: -1}
-          ) {
-            count
-            scenes {
-              ...stashScene
-            }
-          }
-        }
-      """
-
-        variables = {"scene_filter": {"tags": {"value": [tagID], "modifier": "INCLUDES"}}}
-        result = self.__callGraphQL(query, variables)
-        return result["findScenes"]["scenes"]
 
     def runSceneScraper(self, scene, scraper):
         query = """query ScrapeScene($scraper_id: ID!, $scene: SceneUpdateInput!) {
@@ -1001,6 +810,20 @@ stash_gql_fragments = {
           }
         }
     """,
+    "stashSceneAsUpdate":"""
+        fragment stashSceneAsUpdate on Scene {
+          id
+          title
+          details
+          url
+          date
+          rating
+          organized
+          tags { id }
+          performers { id }
+          studio{ id }
+        }
+    """,
     "stashPerformer":"""
         fragment stashPerformer on Performer {
             id
@@ -1047,13 +870,31 @@ stash_gql_fragments = {
             title
             seconds
             primary_tag { ...stashTag }
-            tags {...stashTag }
+            tags { ...stashTag }
+        }
+    """,
+    "stashMovie":"""
+        fragment stashMovie on Movie {
+            id
+            name
+            aliases
+            duration
+            date
+            rating
+            studio { id }
+            director
+            synopsis
+            url
+            created_at
+            updated_at
+            scene_count
         }
     """,
     "stashTag":"""
         fragment stashTag on Tag {
             id
             name
+            aliases
             image_path
             scene_count
         }

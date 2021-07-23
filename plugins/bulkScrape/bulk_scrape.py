@@ -115,8 +115,13 @@ class ScrapeController:
 
 
 	def movie_scrape(self):
-
-		movies = self.client.findMoviesMissingFrontImage()
+		movies = self.client.find_movies(f={
+			"is_missing": "front_image",
+			"url": {
+				"value": "",
+				"modifier": "NOT_NULL"
+			}
+  	})
 		log.info(f'Found {len(movies)} movies with URLs')
 
 		count = self.__movie_scrape(movies)
@@ -124,12 +129,11 @@ class ScrapeController:
 
 	def bulk_url_scrape(self):
 		# Search for all scenes with scrape tag
-		tag = self.client.findTagIdWithName(self.bulk_url_control_tag)
-		if tag is None:
+		tag_id = self.client.get_tag_id_from_name(self.bulk_url_control_tag)
+		if tag_id is None:
 			sys.exit(f'Tag "{self.bulk_url_control_tag}" does not exist. Please create it via the "Create scrape tags" task')
 
-		tag_ids = [tag]
-		scenes = self.client.findScenesByTags(tag_ids)
+		scenes = self.client.get_scenes_with_tag({'id':tag_id})
 		log.info(f'Found {len(scenes)} scenes with {self.bulk_url_control_tag} tag')
 		count = self.__scrape_with_url(scenes)
 		log.info(f'Scraped data for {count} scenes')
@@ -144,7 +148,7 @@ class ScrapeController:
 
 
 	def list_all_control_tags(self):
-		scrapers = self.client.listSceneScrapers('FRAGMENT')
+		scrapers = self.client.list_scene_scrapers('FRAGMENT')
 		scrapers = [f"{self.scrape_with_prefix}{s}" for s in scrapers]
 		scrapers.append(self.bulk_url_control_tag)
 		return scrapers
@@ -152,7 +156,7 @@ class ScrapeController:
 	def get_control_tag_ids(self):
 		control_ids = list()
 		for tag_name in self.list_all_control_tags():
-			tag_id = self.client.findTagIdWithName(tag_name)
+			tag_id = self.client.get_tag_id_from_name(tag_name)
 			if tag_id == None:
 				continue
 			control_ids.append(tag_id)
@@ -161,9 +165,9 @@ class ScrapeController:
 	def add_tags(self):
 		tags = self.list_all_control_tags()
 		for tag_name in tags:
-			tag_id = self.client.findTagIdWithName(tag_name)
+			tag_id = self.client.get_tag_id_from_name(tag_name)
 			if tag_id == None:
-				tag_id = self.client.createTagWithName(tag_name)
+				tag_id = self.client.create_tag({'name':tag_name})
 				log.info(f"adding tag {tag_name}")
 			else:
 				log.debug(f"tag exists, {tag_name}")
@@ -171,12 +175,12 @@ class ScrapeController:
 	def remove_tags(self):
 		tags = self.list_all_control_tags()
 		for tag_name in tags:
-			tag_id = self.client.findTagIdWithName(tag_name)
+			tag_id = self.client.get_tag_id_from_name(tag_name)
 			if tag_id == None:
 				log.debug("Tag does not exist. Nothing to remove")
 				continue
 			log.info(f"Destroying tag {tag_name}")
-			self.client.destroyTag(tag_id)
+			self.client.destroy_tag(tag_id)
 
 
 	def __scrape_with_url(self, scenes):
@@ -226,14 +230,14 @@ class ScrapeController:
 
 		return count
 
-	def __scrape_with_tag(self, tag):
+	def __scrape_with_tag(self, tag_name):
 		last_request = -1
 		if self.delay > 0:
 			# Initialize last request with current time + delay time
 			last_request = time.time() + self.delay
 
-		scenes = self.client.getScenesWithTag(tag)
-		scraper_id = tag.replace(self.scrape_with_prefix,"")
+		scenes = self.client.get_scenes_with_tag( {'name':tag_name} )
+		scraper_id = tag_name.replace(self.scrape_with_prefix,"")
 
 		# Number of scraped scenes
 		count = 0
@@ -287,7 +291,7 @@ class ScrapeController:
 					# Capitalize each word
 					tag_name = " ".join(x.capitalize() for x in tag.get('name').split(" "))
 					log.info(f'Create missing tag: {tag_name}')
-					tag_ids.append(self.client.createTagWithName(tag_name))
+					tag_ids.append(self.client.create_tag({'name':tag_name}))
 			if len(tag_ids) > 0:
 				update_data['tag_ids'] = tag_ids
 
@@ -299,7 +303,7 @@ class ScrapeController:
 				elif self.create_missing_performers and performer.get('name') != "":
 					performer["name"] = " ".join(x.capitalize() for x in performer.get('name').split(" "))
 					log.info(f'Create missing performer: {performer.get("name")}')
-					performer_ids.append(self.client.createPerformer(performer))
+					performer_ids.append(self.client.create_performer(performer))
 			if len(performer_ids) > 0:
 				update_data['performer_ids'] = performer_ids
 
@@ -312,7 +316,7 @@ class ScrapeController:
 				studio["name"] = " ".join(x.capitalize() for x in dict_query(scraped_data, 'studio.name').split(" "))
 				studio["url"] = '{uri.scheme}://{uri.netloc}'.format(uri=urlparse(scene.get('url')))
 				log.info(f'Creating missing studio {studio.get("name")}')
-				update_data['studio_id'] = self.client.createStudio(studio)
+				update_data['studio_id'] = self.client.create_studio(studio)
 
 		if scraped_data.get('movies'):
 			movie_ids = list()
@@ -338,7 +342,7 @@ class ScrapeController:
 						movie_data['aliases'] = movie.get('aliases')
 
 					try:
-						movie_id = self.client.createMovieByName(movie_data)
+						movie_id = self.client.create_movie(movie_data)
 						movie_ids.append( {'movie_id':movie_id, 'scene_index':None} )
 					except Exception as e:
 						log.error('update error')
@@ -368,7 +372,7 @@ class ScrapeController:
 
 		# Update scene with scraped scene data
 		try:
-			self.client.updateScene(update_data)
+			self.client.update_scene_overwrite(update_data)
 		except Exception as e:
 			log.error('Error updating scene')
 			log.error(json.dumps(update_data))
@@ -441,7 +445,7 @@ class ScrapeController:
 				# # Update scene with scraped scene data
 
 				try:
-					self.client.updateMovie(update_data)
+					self.client.update_movie(update_data)
 				except Exception as e:
 					log.error('update error')
 				count += 1
