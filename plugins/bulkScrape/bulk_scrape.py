@@ -301,9 +301,13 @@ class ScrapeController:
 				if performer.get('stored_id'):
 					performer_ids.append(performer.get('stored_id'))
 				elif self.create_missing_performers and performer.get('name') != "":
-					performer["name"] = " ".join(x.capitalize() for x in performer.get('name').split(" "))
-					log.info(f'Create missing performer: {performer.get("name")}')
-					performer_ids.append(self.client.create_performer(performer))
+					# not expecting much from a scene scraper besides a name and url for a performer
+					perf_in = {
+						'name': " ".join(x.capitalize() for x in performer.get('name').split(" ")),
+						'url':  performer.get('url')
+					}
+					log.info(f'Create missing performer: {perf_in.get("name")}')
+					performer_ids.append(self.client.create_performer(perf_in))
 			if len(performer_ids) > 0:
 				update_data['performer_ids'] = performer_ids
 

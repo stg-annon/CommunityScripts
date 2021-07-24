@@ -202,24 +202,59 @@ class StashInterface:
         result = self.__callGraphQL(query, variables)
         return result["sceneUpdate"]["id"]
 
-    def create_performer(self, performer_data):
-        name = performer_data.get("name")
-        query = """
-            mutation($name: String!) {
-                performerCreate(input: { name: $name }) {
-                    id
+    def find_performers(self, q="", f={}):
+        query =  """
+            query FindPerformers($filter: FindFilterType, $performer_filter: PerformerFilterType) {
+                findPerformers(filter: $filter, performer_filter: $performer_filter) {
+                    count
+                    performers {
+                        ...stashPerformer
+                    }
                 }
             }
         """
 
         variables = {
-            'name': name
+            "filter": {
+                "q": q,
+                "per_page": -1,
+                "sort": "name",
+                "direction": "ASC"
+            },
+            "performer_filter": f
         }
 
         result = self.__callGraphQL(query, variables)
-        performer_data["id"] = result.get('performerCreate').get('id')
+        return result.get('findPerformers').get('performers')
 
-        return self.update_performer(performer_data)
+    def find_or_create_performer(self, performer_data):
+        name = performer_data.get("name")
+
+        performers = self.find_performers(q=name)
+
+        for p in performers:
+            if p.get('name').lower() == name.lower():
+                return p
+            if p.get('name').lower() in p.get('aliases').lower():
+                return p
+
+        return self.create_performer(performer_data)
+
+
+    def create_performer(self, performer_data):
+        query = """
+            mutation($input: PerformerCreateInput!) {
+                performerCreate(input: $performer_data) {
+                    id
+                }
+            }
+        """
+
+        variables = {'input': performer_data}
+
+        result = self.__callGraphQL(query, variables)
+        return result.get('performerCreate').get('id')
+
     def update_performer(self, performer_data):
         query = """
             mutation performerUpdate($input:PerformerUpdateInput!) {
@@ -231,7 +266,7 @@ class StashInterface:
         variables = {'input': performer_data}
 
         result = self.__callGraphQL(query, variables)
-        return result["performerUpdate"]["id"]
+        return result.get('performerUpdate').get('id')
 
     def find_or_create_movie(self, movie_data, update_movie=False):
         movie_stashid = self.find_movie(movie_data)
