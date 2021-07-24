@@ -123,7 +123,7 @@ class StashInterface:
                         ...stashTag
                     }
                 }
-            }`
+            }
         """
 
         variables = {
@@ -309,7 +309,6 @@ class StashInterface:
         return result["movieUpdate"]["id"]
 
     def create_studio(self, studio_data):
-        name = studio_data.get("name")
         query = """
             mutation($name: String!) {
                 studioCreate(input: { name: $name }) {
@@ -318,7 +317,7 @@ class StashInterface:
             }
         """
         variables = {
-            'name': name
+            'name': studio_data.get("name")
         }
 
         result = self.__callGraphQL(query, variables)
@@ -430,52 +429,6 @@ class StashInterface:
         }
         return self.find_scenes(f=scene_filter)
 
-
-    # Scrape
-    def scrapeSceneURL(self, url):
-        query = """
-            query($url: String!) {
-                scrapeSceneURL(url: $url) {
-                    ...scrapedScene
-                }
-            }
-        """
-
-        variables = {
-            'url': url
-        }
-
-        result = self.__callGraphQL(query, variables)
-        return result.get('scrapeSceneURL')
-    
-    def scrapeMovieURL(self, url):
-        query = """
-            query($url: String!) {
-                scrapeMovieURL(url: $url) {
-                  name
-                  aliases
-                  duration
-                  date
-                  rating
-                  director
-                  url
-                  synopsis
-                  front_image
-                  back_image
-                  studio {
-                    id
-                    name
-                  }
-                }
-            }
-        """
-
-        variables = {
-            'url': url
-        }
-
-        result = self.__callGraphQL(query, variables)
-        return result.get('scrapeMovieURL')
 
     def createSceneMarker(self, seconds, scene_id, primary_tag_id, title="", tag_ids=[]):
         query = """
@@ -633,7 +586,7 @@ class StashInterface:
                 ret.append(r["id"])
         return ret
 
-    def runSceneScraper(self, scene, scraper):
+    def run_scene_scraper(self, scene, scraper):
         query = """query ScrapeScene($scraper_id: ID!, $scene: SceneUpdateInput!) {
            scrapeScene(scraper_id: $scraper_id, scene: $scene) {
               ...scrapedScene
@@ -647,6 +600,81 @@ class StashInterface:
                                "tag_ids": None, "url": scene["url"]}}
         result = self.__callGraphQL(query, variables)
         return result["scrapeScene"]
+
+    def update_gallery(self, gallery_data):
+        query = """
+            mutation GalleryUpdate($input:GalleryUpdateInput!) {
+                galleryUpdate(input: $input) {
+                    id
+                }
+            }
+        """
+        variables = {'input': gallery_data}
+
+        result = self.__callGraphQL(query, variables)
+        return result["galleryUpdate"]["id"]
+
+    def find_galleries(self, q="", f={}):
+        query = """
+            query FindGalleries($filter: FindFilterType, $gallery_filter: GalleryFilterType) {
+                findGalleries(gallery_filter: $gallery_filter, filter: $filter) {
+                    count
+                    galleries {
+                        ...stashGallery
+                    }
+                }
+            }
+        """
+
+        variables = {
+            "filter": {
+                "q": q,
+                "per_page": -1,
+                "sort": "path",
+                "direction": "ASC"
+            },
+            "gallery_filter": f
+        }
+
+        result = self.__callGraphQL(query, variables)
+        return result.get('findGalleries').get('galleries')
+
+    # URL Scrape
+    def scrape_scene_url(self, url):
+        query = """
+            query($url: String!) {
+                scrapeSceneURL(url: $url) {
+                    ...scrapedScene
+                }
+            }
+        """
+        variables = { 'url': url }
+        result = self.__callGraphQL(query, variables)
+        return result.get('scrapeSceneURL')
+    
+    def scrape_movie_url(self, url):
+        query = """
+            query($url: String!) {
+                scrapeMovieURL(url: $url) {
+                    ...scrapedMovie
+                }
+            }
+        """
+        variables = { 'url': url }
+        result = self.__callGraphQL(query, variables)
+        return result.get('scrapeMovieURL')
+
+    def scrape_gallery_url(self, url):
+        query = """
+            query($url: String!) {
+                scrapeGalleryURL(url: $url) {
+                    ...scrapedGallery 
+                }
+            }
+        """
+        variables = { 'url': url }
+        result = self.__callGraphQL(query, variables)
+        return result.get('scrapeGalleryURL')
 
 stash_gql_fragments = {
     "scrapedScene":"""
@@ -667,10 +695,7 @@ stash_gql_fragments = {
             bitrate
           }
           studio{
-            stored_id
-            name
-            url
-            remote_site_id
+            ...scrapedSceneStudio
           }
           tags{ ...scrapedSceneTag }
           performers{
@@ -685,6 +710,22 @@ stash_gql_fragments = {
             algorithm
             hash
             duration
+          }
+          __typename
+        }
+    """,
+    "scrapedGallery":"""
+        fragment scrapedGallery on ScrapedGallery {
+          title
+          details
+          url
+          date
+          studio{
+            ...scrapedSceneStudio
+          }
+          tags{ ...scrapedSceneTag }
+          performers{
+            ...scrapedScenePerformer
           }
           __typename
         }
@@ -737,6 +778,14 @@ stash_gql_fragments = {
             url
         }
     """,
+    "scrapedSceneStudio": """
+        fragment scrapedSceneStudio on ScrapedSceneStudio {
+            stored_id
+            name
+            url
+            remote_site_id
+        }
+    """,
     "scrapedPerformer":"""
         fragment scrapedPerformer on ScrapedPerformer {
             name
@@ -763,6 +812,31 @@ stash_gql_fragments = {
             hair_color
             weight
             __typename
+        }
+    """,
+    "scrapedMovie":"""
+        fragment scrapedMovie on ScrapedMovie {
+            name
+            aliases
+            duration
+            date
+            rating
+            director
+            url
+            synopsis
+            studio {
+                ...scrapedMovieStudio
+            }
+            front_image
+            back_image
+            __typename
+        }
+    """,
+    "scrapedMovieStudio":"""
+        fragment scrapedMovieStudio on ScrapedMovieStudio {
+            id
+            name
+            url
         }
     """,
     "stashSceneUpdate":"""
@@ -843,6 +917,40 @@ stash_gql_fragments = {
             endpoint
             stash_id
           }
+        }
+    """,
+    "stashGallery":"""
+        fragment stashGallery on Gallery {
+            id
+            checksum
+            path
+            title
+            date
+            url
+            details
+            rating
+            organized
+            image_count
+            cover {
+                paths {
+                    thumbnail
+                }
+            }
+            studio {
+                id
+                name
+            }
+            tags {
+                ...stashTag
+            }
+            performers {
+                ...stashPerformer
+            }
+            scenes {
+                id
+                title
+                path
+            }
         }
     """,
     "stashSceneAsUpdate":"""

@@ -16,13 +16,9 @@ tasks:
     defaultArgs:
       mode: remove
   - name: URL Scrape
-    description: Scrape scene information for all scenes with the control tag defined in the config. This action will only merge tags and overwrite all other previous scene information
+    description: Scrape anything tagged with control tag and any scene that has a url but is missing its front cover image, ingnores any that are disabled in config
     defaultArgs:
       mode: url_scrape
-  - name: Movie Scrape
-    description: Bulk URL scrape movies with missing front image and a defined url
-    defaultArgs:
-      mode: movie_scrape
   - name: Fragment Scrape
     description: run fragment scrapers on scenes with relevent fragment tag
     defaultArgs:

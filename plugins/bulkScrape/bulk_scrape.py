@@ -20,6 +20,11 @@ config.create_missing_tags = True
 config.create_missing_studios = True
 config.create_missing_movies = False
 
+# url scrape config
+config.bulk_url_scrape_scenes = True
+config.bulk_url_scrape_galleries = True
+config.bulk_url_scrape_movies = True
+
 # Delay between web requests
 # Default: 5
 config.delay = 5
@@ -128,15 +133,57 @@ class ScrapeController:
 		log.info(f'Scraped data for {count} movies')
 
 	def bulk_url_scrape(self):
-		# Search for all scenes with scrape tag
+		# Scrape Everything enabled in config
 		tag_id = self.client.get_tag_id_from_name(self.bulk_url_control_tag)
 		if tag_id is None:
 			sys.exit(f'Tag "{self.bulk_url_control_tag}" does not exist. Please create it via the "Create scrape tags" task')
 
-		scenes = self.client.get_scenes_with_tag({'id':tag_id})
-		log.info(f'Found {len(scenes)} scenes with {self.bulk_url_control_tag} tag')
-		count = self.__scrape_with_url(scenes)
-		log.info(f'Scraped data for {count} scenes')
+		if config.bulk_url_scrape_scenes:
+			scenes = self.client.find_scenes(f={
+				"tags": {
+					"value": [tag_id],
+					"modifier": "INCLUDES"
+				},
+				"url": {
+					"value": "",
+					"modifier": "NOT_NULL"
+				}
+			})
+
+			log.info(f'Found {len(scenes)} scenes with {self.bulk_url_control_tag} tag')
+			count = self.__scrape_scenes_with_url(scenes)
+			log.info(f'Scraped data for {count} scenes')
+			log.info('##############################')
+
+		if config.bulk_url_scrape_galleries:
+			galleries = self.client.find_galleries(f={
+				"tags": {
+					"value": [tag_id],
+					"modifier": "INCLUDES"
+				},
+				"url": {
+					"value": "",
+					"modifier": "NOT_NULL"
+				}
+			})
+
+			log.info(f'Found {len(galleries)} galleries with {self.bulk_url_control_tag} tag')
+			count = self.__scrape_galleries_with_url(galleries)
+			log.info(f'Scraped data for {count} galleries')
+			log.info('##############################')
+
+		if config.bulk_url_scrape_movies:
+			movies = self.client.find_movies(f={
+				"is_missing": "front_image",
+				"url": {
+					"value": "",
+					"modifier": "NOT_NULL"
+				}
+			})
+			log.info(f'Found {len(movies)} movies with URLs')
+			count = self.__scrape_movies_with_url(movies)
+			log.info(f'Scraped data for {count} movies')
+
 		return None
 
 	def scrape_scenes_with_fragment_tags(self):
@@ -183,53 +230,6 @@ class ScrapeController:
 			self.client.destroy_tag(tag_id)
 
 
-	def __scrape_with_url(self, scenes):
-		last_request = -1
-		if self.delay > 0:
-			# Initialize last request with current time + delay time
-			last_request = time.time() + self.delay
-
-		working_scrapers = set()
-		missing_scrapers = set()
-
-		# Number of scraped scenes
-		count = 0
-		total = len(scenes)
-
-		# Scrape if url not in missing_scrapers
-		for i, scene in enumerate(scenes):
-			# Update status bar
-			log.progress(i/total)
-
-			if scene.get('url') is None or scene.get('url') == "":
-				log.info(f"Scene {scene.get('id')} is missing url")
-				continue
-			netloc = urlparse(scene.get("url")).netloc
-			if netloc in working_scrapers or netloc not in missing_scrapers:
-				log.info(f"Scraping URL for Scene {scene.get('id')}")
-				self.wait()
-				scraped_data = self.client.scrapeSceneURL(scene.get('url'))
-				# If result is null, add url to missing_scrapers
-				if scraped_data is None:
-					log.warning(f"Missing scraper for {urlparse(scene.get('url')).netloc}")
-					missing_scrapers.add(netloc)
-					continue
-				else:
-					working_scrapers.add(netloc)
-				# No data has been found for this scene
-				if not any(scraped_data.values()):
-					log.info(f"Could not get data for scene {scene.get('id')}")
-					continue
-
-				success = self.__update_scene_with_scrape_data(scene, scraped_data)
-				if not success:
-					log.warning(f"Failed to scrape scene {scene.get('id')}")
-
-				log.debug(f"Scraped data for scene {scene.get('id')}")
-				count += 1
-
-		return count
-
 	def __scrape_with_tag(self, tag_name):
 		last_request = -1
 		if self.delay > 0:
@@ -249,7 +249,7 @@ class ScrapeController:
 			log.progress(i/total)
 
 			self.wait()
-			scraped_data = self.client.runSceneScraper(scene, scraper_id)
+			scraped_data = self.client.run_scene_scraper(scene, scraper_id)
 
 			if scraped_data is None:
 				log.info(f"Scraper ({scraper_id}) did not return a result for scene ({scene.get('id')}) ")
@@ -268,6 +268,61 @@ class ScrapeController:
 
 		return count
 
+
+	def __scrape_with_url(self, scrape_type, items, __scrape, __update):
+		last_request = -1
+		if self.delay > 0:
+			# Initialize last request with current time + delay time
+			last_request = time.time() + self.delay
+
+		working_scrapers = set()
+		missing_scrapers = set()
+
+		# Number of items to scrape
+		count = 0
+		total = len(items)
+
+		# Scrape if url not in missing_scrapers
+		for i, item in enumerate(items):
+			# Update status bar
+			log.progress(i/total)
+
+			if item.get('url') is None or item.get('url') == "":
+				log.info(f"{scrape_type} {item.get('id')} is missing url")
+				continue
+			netloc = urlparse(item.get("url")).netloc
+			if netloc in working_scrapers or netloc not in missing_scrapers:
+				log.info(f"Scraping URL for {scrape_type} {item.get('id')}")
+				self.wait()
+				scraped_data = __scrape(item.get('url'))
+				# If result is null, add url to missing_scrapers
+				if scraped_data is None:
+					log.warning(f"Missing scraper for {urlparse(item.get('url')).netloc}")
+					missing_scrapers.add(netloc)
+					continue
+				else:
+					working_scrapers.add(netloc)
+				# No data has been found for this item
+				if not any(scraped_data.values()):
+					log.info(f"Could not get data for {scrape_type} {item.get('id')}")
+					continue
+
+				success = __update(item, scraped_data)
+				if not success:
+					log.warning(f"Failed to scrape {scrape_type} {item.get('id')}")
+
+				log.debug(f"Scraped data for {scrape_type} {item.get('id')}")
+				count += 1
+
+		return count
+
+	def __scrape_scenes_with_url(self, scenes):
+		return self.__scrape_with_url(
+			"scene",
+			scenes,
+			self.client.scrape_scene_url,
+			self.__update_scene_with_scrape_data
+		)
 	def __update_scene_with_scrape_data(self, scene, scraped_data):
 		# Create dict with scene data
 		update_data = {
@@ -384,77 +439,188 @@ class ScrapeController:
 
 		return True
 
-	def __movie_scrape(self, movies):
-		last_request = -1
-		if self.delay > 0:
-			# Initialize last request with current time + delay time
-			last_request = time.time() + self.delay
+	def __scrape_galleries_with_url(self, galleries):
+		return self.__scrape_with_url(
+			"gallery",
+			galleries,
+			self.client.scrape_gallery_url,
+			self.__update_gallery_with_scrape_data
+		)
+	def __update_gallery_with_scrape_data(self, gallery, scraped_data):
 
-		missing_scrapers = list()
+		# Expecting ScrapedGallery {
+		# 		title
+		# 		details
+		# 		url
+		# 		date
+		# 		studio { ...scrapedSceneStudio }
+		# 		tags [ ...ScrapedSceneTag ]
+		# 		performers [ ...scrapedScenePerformer ]
+		# }
 
-		# Number of scraped scenes
-		count = 0
+		# Casting to GalleryUpdateInput {
+		# 		id
+		#     title
+		# 		details
+		# 		url
+		# 		date
+		#     rating
+		# 		organized
+		# 		scene_ids [ID!]
+		# 		studio_id
+		# 		tag_ids [ID!]
+		# 		performer_ids [ID!]
+		# }
 
-		total = len(movies)
-		# Index for progress bar
-		i = 0
+		update_data = {
+			'id': gallery.get('id')
+		}
 
-		# Scrape if url not in missing_scrapers
-		for movie in movies:
-			# Update status bar
-			i += 1
-			log.progress(i/total)
+		common_attrabutes = [
+			'title',
+			'details',
+			'url',
+			'date'
+		]
+		for attr in common_attrabutes:
+			if scraped_data.get(attr):
+				update_data[attr] = scraped_data.get(attr)
+		
+		if scraped_data.get('tags'):
+			tag_ids = list()
+			for tag in scraped_data.get('tags'):
+				if tag.get('stored_id'):
+					tag_ids.append(tag.get('stored_id'))
+				elif self.create_missing_tags and tag.get('name') != "":
+					# Capitalize each word
+					tag_name = " ".join(x.capitalize() for x in tag.get('name').split(" "))
+					log.info(f'Create missing tag: {tag_name}')
+					tag_ids.append(self.client.create_tag({'name':tag_name}))
+			if len(tag_ids) > 0:
+				update_data['tag_ids'] = tag_ids
 
-			if movie.get('url') is None or movie.get('url') == "":
-				log.info(f"Movie {movie.get('id')} is missing url")
-				continue
-			if urlparse(movie.get("url")).netloc not in missing_scrapers:
-				log.debug(f"Scraping movie {movie.get('id')}")
-				self.wait()
-				scraped_data = self.client.scrapeMovieURL(movie.get('url'))
-				# If result is null, add url to missing_scrapers
-				if scraped_data is None:
-					log.warning(f"Missing scraper for {urlparse(movie.get('url')).netloc}")
-					missing_scrapers.append(urlparse(movie.get('url')).netloc)
-					continue
-				# No data has been found for this scene
-				if not any(scraped_data.values()):
-					log.info(f"Could not get data for scene {movie.get('id')}")
-					continue
+		if scraped_data.get('performers'):
+			performer_ids = list()
+			for performer in scraped_data.get('performers'):
+				if performer.get('stored_id'):
+					performer_ids.append(performer.get('stored_id'))
+				elif self.create_missing_performers and performer.get('name') != "":
+					# not expecting much from a scene scraper besides a name and url for a performer
+					perf_in = {
+						'name': " ".join(x.capitalize() for x in performer.get('name').split(" ")),
+						'url':  performer.get('url')
+					}
+					log.info(f'Create missing performer: {perf_in.get("name")}')
+					performer_ids.append(self.client.create_performer(perf_in))
+			if len(performer_ids) > 0:
+				update_data['performer_ids'] = performer_ids
+
+		if scraped_data.get('studio'):
+			log.debug(json.dumps(scraped_data.get('studio')))
+			if dict_query(scraped_data, 'studio.stored_id'):
+				update_data['studio_id'] = dict_query(scraped_data, 'studio.stored_id')
+			elif self.create_missing_studios:
+				studio = {}
+				studio["name"] = " ".join(x.capitalize() for x in dict_query(scraped_data, 'studio.name').split(" "))
+				studio["url"] = '{uri.scheme}://{uri.netloc}'.format(uri=urlparse(gallery.get('url')))
+				log.info(f'Creating missing studio {studio.get("name")}')
+				update_data['studio_id'] = self.client.create_studio(studio)
+
+		# Merge existing tags ignoring plugin control tags
+		merged_tags = set()
+
+		control_tag_ids = self.get_control_tag_ids()
+		for tag in gallery.get('tags'):
+			if tag.get('id') not in control_tag_ids:
+				merged_tags.add(tag.get('id'))
+		if update_data.get('tag_ids'):
+			merged_tags.update(update_data.get('tag_ids'))
+
+		update_data['tag_ids'] = list(merged_tags)
 
 
-				# scraped_data keys(['name', 'aliases', 'duration', 'date', 'rating', 'director', 'url', 'synopsis', 'front_image', 'back_image', 'studio'])
+		# Update scene with scraped scene data
+		try:
+			self.client.update_gallery(update_data)
+		except Exception as e:
+			log.error('Error updating gallery')
+			log.error(json.dumps(update_data))
+			log.error(str(e))
+			return False
 
-				# Create dict with scene data
-				update_data = {
-					'id': movie.get('id')
-				}
+		return True
 
+	def __scrape_movies_with_url(self, movies):
+		return self.__scrape_with_url(
+			"movie",
+			movies,
+			self.client.scrape_movie_url,
+			self.__update_movie_with_scrape_data
+		)
+	def __update_movie_with_scrape_data(self, movie, scraped_data):
 
-				if scraped_data.get('front_image'):
-					update_data['front_image'] = scraped_data.get('front_image')
-				if scraped_data.get('back_image'):
-					update_data['back_image'] = scraped_data.get('back_image')
+		# Expecting  ScrapedMovie {
+		# 		name
+		# 		aliases
+		# 		duration
+		# 		date
+		# 		rating
+		# 		director
+		# 		url
+		# 		synopsis
+		# 		studio {
+		# 				...scrapedMovieStudio
+		# 		}
+		# 		front_image
+		# 		back_image
+		# }
 
-				if scraped_data.get('synopsis'):
-					update_data['synopsis'] = scraped_data.get('synopsis')
-				if scraped_data.get('date'):
-					update_data['date'] = scraped_data.get('date')
-				if scraped_data.get('aliases'):
-					update_data['aliases'] = scraped_data.get('aliases')
+		# Casting to MovieUpdateInput {
+		# 		id
+		#     name
+		# 		aliases
+		# 		duration
+		# 		date
+		# 		rating
+		#     studio_id
+		# 		director
+		# 		url
+		# 		synopsis
+		# 		front_image
+		# 		back_image
+		# }
 
-				if scraped_data.get('studio'):
-					update_data['studio_id'] = scraped_data.get('studio').get('id')
+		update_data = {
+			'id': movie.get('id')
+		}
 
-				# # Update scene with scraped scene data
+		common_attrabutes = [
+			'name',
+			'aliases',
+			'duration',
+			'date',
+			'rating',
+			'director',
+			'url',
+			'synopsis',
+			'front_image',
+			'back_image'
+		]
 
-				try:
-					self.client.update_movie(update_data)
-				except Exception as e:
-					log.error('update error')
-				count += 1
+		for attr in common_attrabutes:
+			if scraped_data.get(attr):
+				update_data[attr] = scraped_data.get(attr)
 
-		return count
+		if scraped_data.get('studio'):
+			update_data['studio_id'] = scraped_data.get('studio').get('id')
+
+		try:
+			self.client.update_movie(update_data)
+		except Exception as e:
+			log.error('update movie error')
+			return False
+
+		return True
 
 
 # simple function to address large nested python dicts with dot notation 
