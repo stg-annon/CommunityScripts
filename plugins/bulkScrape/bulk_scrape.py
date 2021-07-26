@@ -220,23 +220,23 @@ class ScrapeController:
 		if config.fragment_scrape_scenes:
 			for s in self.client.list_scene_scrapers('FRAGMENT'):
 				if s in fragment_tags:
-					fragment_tags[s]['SCENE'] = f'{self.scrape_with_prefix}s_{s}'
+					fragment_tags[s]['SCENE'] = f'{self.scrape_with_prefix}{s}'
 				else:
-					fragment_tags[s] = {'SCENE': f'{self.scrape_with_prefix}s_{s}'}
+					fragment_tags[s] = {'SCENE': f'{self.scrape_with_prefix}{s}'}
 
 		if config.fragment_scrape_galleries:
 			for s in self.client.list_gallery_scrapers('FRAGMENT'):
 				if s in fragment_tags:
-					fragment_tags[s]['GALLERY'] = f'{self.scrape_with_prefix}g_{s}'
+					fragment_tags[s]['GALLERY'] = f'{self.scrape_with_prefix}{s}'
 				else:
-					fragment_tags[s] = {'GALLERY': f'{self.scrape_with_prefix}s_{s}'}
+					fragment_tags[s] = {'GALLERY': f'{self.scrape_with_prefix}{s}'}
 
 		if config.fragment_scrape_movies:
 			for s in self.client.list_movie_scrapers('FRAGMENT'):
 				if s in fragment_tags:
-					fragment_tags[s]['MOVIE'] = f'{self.scrape_with_prefix}m_{s}'
+					fragment_tags[s]['MOVIE'] = f'{self.scrape_with_prefix}{s}'
 				else:
-					fragment_tags[s] = {'MOVIE': f'{self.scrape_with_prefix}s_{s}'}
+					fragment_tags[s] = {'MOVIE': f'{self.scrape_with_prefix}{s}'}
 
 		# might need to handle separately
 		# if config.fragment_scrape_performers:
