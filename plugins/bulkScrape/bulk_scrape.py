@@ -24,16 +24,21 @@ config.create_missing_movies = False
 config.bulk_url_scrape_scenes = True
 config.bulk_url_scrape_galleries = True
 config.bulk_url_scrape_movies = True
+config.bulk_url_scrape_performers = False
+
+# fragment scrape config
+config.fragment_scrape_scenes = True
+config.fragment_scrape_galleries = True
 
 # Delay between web requests
 # Default: 5
 config.delay = 5
 
 # Name of the tag, that will be used for selecting scenes for bulk url scraping
-config.bulk_url_control_tag = "scrape_bulk_url"
+config.bulk_url_control_tag = "blk_scrape_url"
 
 # Prefix of all fragment scraper tags
-config.scrape_with_prefix = "scrape_with_"
+config.scrape_with_prefix = "blk_scrape_"
 
 
 ############################################################################
@@ -65,10 +70,8 @@ def run(json_input, output):
 
 		if mode_arg == "url_scrape":
 			scraper.bulk_url_scrape()
-		if mode_arg == "movie_scrape":
-			scraper.movie_scrape()
 		if mode_arg == "fragment_scrape":
-			scraper.scrape_scenes_with_fragment_tags()
+			scraper.bulk_fragment_scrape()
 
 	except Exception:
 		raise
@@ -80,11 +83,6 @@ class ScrapeController:
 
 	def __init__(self, client, create_missing_performers=False, create_missing_tags=False, create_missing_studios=False, create_missing_movies=False, delay=5):
 		try:
-			self.create_missing_movies = bool(config.create_missing_movies)
-			self.create_missing_studios = bool(config.create_missing_studios)
-			self.create_missing_tags = bool(config.create_missing_tags)
-			self.create_missing_performers = bool(config.create_missing_performers)
-			
 			self.bulk_url_control_tag = str(config.bulk_url_control_tag)
 			self.scrape_with_prefix = str(config.scrape_with_prefix)
 
@@ -100,11 +98,13 @@ class ScrapeController:
 
 		self.client = client
 
+		self.client.reload_scrapers()
+
 		log.info('######## Bulk Scraper ########')
-		log.info(f'create_missing_performers: {self.create_missing_performers}')
-		log.info(f'create_missing_tags: {self.create_missing_tags}')
-		log.info(f'create_missing_studios: {self.create_missing_studios}')
-		log.info(f'create_missing_movies: {self.create_missing_movies}')
+		log.info(f'create_missing_performers: {config.create_missing_performers}')
+		log.info(f'create_missing_tags: {config.create_missing_tags}')
+		log.info(f'create_missing_studios: {config.create_missing_studios}')
+		log.info(f'create_missing_movies: {config.create_missing_movies}')
 		log.info(f'delay: {self.delay}')
 		log.info('##############################')
 
@@ -119,18 +119,25 @@ class ScrapeController:
 			self.last_wait_time = time.time()
 
 
-	def movie_scrape(self):
-		movies = self.client.find_movies(f={
-			"is_missing": "front_image",
-			"url": {
-				"value": "",
-				"modifier": "NOT_NULL"
-			}
-  	})
-		log.info(f'Found {len(movies)} movies with URLs')
+	def add_tags(self):
+		tags = self.list_all_control_tags()
+		for tag_name in tags:
+			tag_id = self.client.get_tag_id_from_name(tag_name)
+			if tag_id == None:
+				tag_id = self.client.create_tag({'name':tag_name})
+				log.info(f"adding tag {tag_name}")
+			else:
+				log.debug(f"tag exists, {tag_name}")
 
-		count = self.__movie_scrape(movies)
-		log.info(f'Scraped data for {count} movies')
+	def remove_tags(self):
+		tags = self.list_all_control_tags()
+		for tag_name in tags:
+			tag_id = self.client.get_tag_id_from_name(tag_name)
+			if tag_id == None:
+				log.debug("Tag does not exist. Nothing to remove")
+				continue
+			log.info(f"Destroying tag {tag_name}")
+			self.client.destroy_tag(tag_id)
 
 	def bulk_url_scrape(self):
 		# Scrape Everything enabled in config
@@ -186,19 +193,61 @@ class ScrapeController:
 
 		return None
 
-	def scrape_scenes_with_fragment_tags(self):
-		tags=self.list_all_control_tags()
-		for tag in tags:
-			if tag.startswith("scrape_with_"):
-				log.info(f"scraping all scenes with tag: {tag}")
-				self.__scrape_with_tag(tag)
+	def bulk_fragment_scrape(self):
+		# Scrape Everything enabled in config
 
+		for scraper_id, types in self.list_all_fragment_tags().items():
+			
+			if config.bulk_url_scrape_scenes:
+				if types.get('SCENE'):
+					scenes = self.client.find_scenes_with_tag({'name': types.get('SCENE')})
+					self.__scrape_scenes_with_fragment(scenes, scraper_id)
+			
+			if config.bulk_url_scrape_galleries:
+				if types.get('GALLERY'):
+					galleries = self.client.find_galleries_with_tag( {'name': types.get('GALLERY') } )
+					self.__scrape_galleries_with_fragment(galleries, scraper_id)
+
+		return None
+
+
+
+	def list_all_fragment_tags(self):
+		fragment_tags = {}
+
+		if config.fragment_scrape_scenes:
+			for s in self.client.list_scene_scrapers('FRAGMENT'):
+				if s in fragment_tags:
+					fragment_tags[s]['SCENE'] = f'{self.scrape_with_prefix}s_{s}'
+				else:
+					fragment_tags[s] = {'SCENE': f'{self.scrape_with_prefix}s_{s}'}
+
+		if config.fragment_scrape_galleries:
+			for s in self.client.list_gallery_scrapers('FRAGMENT'):
+				if s in fragment_tags:
+					fragment_tags[s]['GALLERY'] = f'{self.scrape_with_prefix}g_{s}'
+				else:
+					fragment_tags[s] = {'GALLERY': f'{self.scrape_with_prefix}s_{s}'}
+
+		if config.fragment_scrape_movies:
+			for s in self.client.list_movie_scrapers('FRAGMENT'):
+				if s in fragment_tags:
+					fragment_tags[s]['MOVIE'] = f'{self.scrape_with_prefix}m_{s}'
+				else:
+					fragment_tags[s] = {'MOVIE': f'{self.scrape_with_prefix}s_{s}'}
+
+		# might need to handle separately
+		# if config.fragment_scrape_performers:
+		# 	for s in self.client.list_performer_scrapers('FRAGMENT'):
+		# 		fragment_tags[s] = f'{self.scrape_with_prefix}p_{s}'
+
+		return fragment_tags
 
 	def list_all_control_tags(self):
-		scrapers = self.client.list_scene_scrapers('FRAGMENT')
-		scrapers = [f"{self.scrape_with_prefix}{s}" for s in scrapers]
-		scrapers.append(self.bulk_url_control_tag)
-		return scrapers
+		control_tags = [ self.bulk_url_control_tag ]
+		for supported_types in self.list_all_fragment_tags().values():
+			control_tags.extend( supported_types.values() )
+		return control_tags
 
 	def get_control_tag_ids(self):
 		control_ids = list()
@@ -209,65 +258,42 @@ class ScrapeController:
 			control_ids.append(tag_id)
 		return control_ids
 
-	def add_tags(self):
-		tags = self.list_all_control_tags()
-		for tag_name in tags:
-			tag_id = self.client.get_tag_id_from_name(tag_name)
-			if tag_id == None:
-				tag_id = self.client.create_tag({'name':tag_name})
-				log.info(f"adding tag {tag_name}")
-			else:
-				log.debug(f"tag exists, {tag_name}")
 
-	def remove_tags(self):
-		tags = self.list_all_control_tags()
-		for tag_name in tags:
-			tag_id = self.client.get_tag_id_from_name(tag_name)
-			if tag_id == None:
-				log.debug("Tag does not exist. Nothing to remove")
-				continue
-			log.info(f"Destroying tag {tag_name}")
-			self.client.destroy_tag(tag_id)
-
-
-	def __scrape_with_tag(self, tag_name):
+	def __scrape_with_fragment(self, scrape_type, scraper_id, items, __scrape, __update):
 		last_request = -1
 		if self.delay > 0:
 			# Initialize last request with current time + delay time
 			last_request = time.time() + self.delay
 
-		scenes = self.client.get_scenes_with_tag( {'name':tag_name} )
-		scraper_id = tag_name.replace(self.scrape_with_prefix,"")
-
-		# Number of scraped scenes
+		# Number of scraped items
 		count = 0
-		total = len(scenes)
+		total = len(items)
 
-		# Scrape if url not in missing_scrapers
-		for i, scene in enumerate(scenes):
+		log.info(f'Scraping {total} {scrape_type} with scraper: {scraper_id}')
+
+		for i, item in enumerate(items):
 			# Update status bar
 			log.progress(i/total)
 
 			self.wait()
-			scraped_data = self.client.run_scene_scraper(scene, scraper_id)
+			scraped_data = __scrape(item, scraper_id)
 
 			if scraped_data is None:
-				log.info(f"Scraper ({scraper_id}) did not return a result for scene ({scene.get('id')}) ")
+				log.info(f"Scraper ({scraper_id}) did not return a result for {scrape_type} ({item.get('id')}) ")
 				continue
 			else:
 				# No data has been found for this scene
 				if not any(scraped_data.values()):
-					log.info(f"Could not get data for scene {scene.get('id')}")
+					log.info(f"Could not get data for {scrape_type} {item.get('id')}")
 					continue
 
-				success = self.__update_scene_with_scrape_data(scene, scraped_data)
+				success = __update(item, scraped_data)
 				if not success:
-					log.warning(f"Failed to scrape scene {scene.get('id')}")
+					log.warning(f"Failed to scrape {scrape_type} {item.get('id')}")
 
 				count += 1
 
 		return count
-
 
 	def __scrape_with_url(self, scrape_type, items, __scrape, __update):
 		last_request = -1
@@ -316,6 +342,14 @@ class ScrapeController:
 
 		return count
 
+	def __scrape_scenes_with_fragment(self, scenes, scraper_id):
+		return self.__scrape_with_fragment(
+			"scenes",
+			scraper_id,
+			scenes,
+			self.client.run_scene_scraper,
+			self.__update_scene_with_scrape_data
+		)
 	def __scrape_scenes_with_url(self, scenes):
 		return self.__scrape_with_url(
 			"scene",
@@ -342,7 +376,7 @@ class ScrapeController:
 			for tag in scraped_data.get('tags'):
 				if tag.get('stored_id'):
 					tag_ids.append(tag.get('stored_id'))
-				elif self.create_missing_tags and tag.get('name') != "":
+				elif config.create_missing_tags and tag.get('name') != "":
 					# Capitalize each word
 					tag_name = " ".join(x.capitalize() for x in tag.get('name').split(" "))
 					log.info(f'Create missing tag: {tag_name}')
@@ -355,7 +389,7 @@ class ScrapeController:
 			for performer in scraped_data.get('performers'):
 				if performer.get('stored_id'):
 					performer_ids.append(performer.get('stored_id'))
-				elif self.create_missing_performers and performer.get('name') != "":
+				elif config.create_missing_performers and performer.get('name') != "":
 					# not expecting much from a scene scraper besides a name and url for a performer
 					perf_in = {
 						'name': " ".join(x.capitalize() for x in performer.get('name').split(" ")),
@@ -370,7 +404,7 @@ class ScrapeController:
 			log.debug(json.dumps(scraped_data.get('studio')))
 			if dict_query(scraped_data, 'studio.stored_id'):
 				update_data['studio_id'] = dict_query(scraped_data, 'studio.stored_id')
-			elif self.create_missing_studios:
+			elif config.create_missing_studios:
 				studio = {}
 				studio["name"] = " ".join(x.capitalize() for x in dict_query(scraped_data, 'studio.name').split(" "))
 				studio["url"] = '{uri.scheme}://{uri.netloc}'.format(uri=urlparse(scene.get('url')))
@@ -383,7 +417,7 @@ class ScrapeController:
 				if movie.get('stored_id'):
 					movie_id = movie.get('stored_id')
 					movie_ids.append( {'movie_id':movie_id, 'scene_index':None} )
-				elif self.create_missing_movies and movie.get('name') != "":
+				elif config.create_missing_movies and movie.get('name') != "":
 					log.info(f'Create missing movie: "{movie.get("name")}"')
 					
 					movie_data = {
@@ -431,7 +465,7 @@ class ScrapeController:
 
 		# Update scene with scraped scene data
 		try:
-			self.client.update_scene_overwrite(update_data)
+			self.client.update_scene(update_data)
 		except Exception as e:
 			log.error('Error updating scene')
 			log.error(json.dumps(update_data))
@@ -439,6 +473,14 @@ class ScrapeController:
 
 		return True
 
+	def __scrape_galleries_with_fragment(self, galleries, scraper_id):
+		return self.__scrape_with_fragment(
+			"galleries",
+			scraper_id,
+			galleries,
+			self.client.run_gallery_scraper,
+			self.__update_gallery_with_scrape_data
+		)
 	def __scrape_galleries_with_url(self, galleries):
 		return self.__scrape_with_url(
 			"gallery",
@@ -491,7 +533,7 @@ class ScrapeController:
 			for tag in scraped_data.get('tags'):
 				if tag.get('stored_id'):
 					tag_ids.append(tag.get('stored_id'))
-				elif self.create_missing_tags and tag.get('name') != "":
+				elif config.create_missing_tags and tag.get('name') != "":
 					# Capitalize each word
 					tag_name = " ".join(x.capitalize() for x in tag.get('name').split(" "))
 					log.info(f'Create missing tag: {tag_name}')
@@ -504,7 +546,7 @@ class ScrapeController:
 			for performer in scraped_data.get('performers'):
 				if performer.get('stored_id'):
 					performer_ids.append(performer.get('stored_id'))
-				elif self.create_missing_performers and performer.get('name') != "":
+				elif config.create_missing_performers and performer.get('name') != "":
 					# not expecting much from a scene scraper besides a name and url for a performer
 					perf_in = {
 						'name': " ".join(x.capitalize() for x in performer.get('name').split(" ")),
@@ -519,7 +561,7 @@ class ScrapeController:
 			log.debug(json.dumps(scraped_data.get('studio')))
 			if dict_query(scraped_data, 'studio.stored_id'):
 				update_data['studio_id'] = dict_query(scraped_data, 'studio.stored_id')
-			elif self.create_missing_studios:
+			elif config.create_missing_studios:
 				studio = {}
 				studio["name"] = " ".join(x.capitalize() for x in dict_query(scraped_data, 'studio.name').split(" "))
 				studio["url"] = '{uri.scheme}://{uri.netloc}'.format(uri=urlparse(gallery.get('url')))
