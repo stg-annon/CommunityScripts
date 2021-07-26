@@ -29,6 +29,8 @@ config.bulk_url_scrape_performers = False
 # fragment scrape config
 config.fragment_scrape_scenes = True
 config.fragment_scrape_galleries = True
+config.fragment_scrape_movies = True
+config.fragment_scrape_performers = False
 
 # Delay between web requests
 # Default: 5
