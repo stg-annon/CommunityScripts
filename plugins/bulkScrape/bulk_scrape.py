@@ -39,6 +39,9 @@ config.delay = 5
 # Name of the tag, that will be used for selecting scenes for bulk url scraping
 config.bulk_url_control_tag = "blk_scrape_url"
 
+# stash box control tag
+config.bulk_stash_box_control_tag = "blk_scrape_stashbox"
+
 # Prefix of all fragment scraper tags
 config.scrape_with_prefix = "blk_scrape_"
 
@@ -85,9 +88,6 @@ class ScrapeController:
 
 	def __init__(self, client, create_missing_performers=False, create_missing_tags=False, create_missing_studios=False, create_missing_movies=False, delay=5):
 		try:
-			self.bulk_url_control_tag = str(config.bulk_url_control_tag)
-			self.scrape_with_prefix = str(config.scrape_with_prefix)
-
 			self.delay = int(config.delay)
 
 			self.last_wait_time = -1
@@ -143,9 +143,9 @@ class ScrapeController:
 
 	def bulk_url_scrape(self):
 		# Scrape Everything enabled in config
-		tag_id = self.client.get_tag_id_from_name(self.bulk_url_control_tag)
+		tag_id = self.client.get_tag_id_from_name(config.bulk_url_control_tag)
 		if tag_id is None:
-			sys.exit(f'Tag "{self.bulk_url_control_tag}" does not exist. Please create it via the "Create scrape tags" task')
+			sys.exit(f'Tag "{config.bulk_url_control_tag}" does not exist. Please create it via the "Create scrape tags" task')
 
 		if config.bulk_url_scrape_scenes:
 			scenes = self.client.find_scenes(f={
@@ -159,7 +159,7 @@ class ScrapeController:
 				}
 			})
 
-			log.info(f'Found {len(scenes)} scenes with {self.bulk_url_control_tag} tag')
+			log.info(f'Found {len(scenes)} scenes with {config.bulk_url_control_tag} tag')
 			count = self.__scrape_scenes_with_url(scenes)
 			log.info(f'Scraped data for {count} scenes')
 			log.info('##############################')
@@ -176,7 +176,7 @@ class ScrapeController:
 				}
 			})
 
-			log.info(f'Found {len(galleries)} galleries with {self.bulk_url_control_tag} tag')
+			log.info(f'Found {len(galleries)} galleries with {config.bulk_url_control_tag} tag')
 			count = self.__scrape_galleries_with_url(galleries)
 			log.info(f'Scraped data for {count} galleries')
 			log.info('##############################')
@@ -220,33 +220,33 @@ class ScrapeController:
 		if config.fragment_scrape_scenes:
 			for s in self.client.list_scene_scrapers('FRAGMENT'):
 				if s in fragment_tags:
-					fragment_tags[s]['SCENE'] = f'{self.scrape_with_prefix}{s}'
+					fragment_tags[s]['SCENE'] = f'{config.scrape_with_prefix}{s}'
 				else:
-					fragment_tags[s] = {'SCENE': f'{self.scrape_with_prefix}{s}'}
+					fragment_tags[s] = {'SCENE': f'{config.scrape_with_prefix}{s}'}
 
 		if config.fragment_scrape_galleries:
 			for s in self.client.list_gallery_scrapers('FRAGMENT'):
 				if s in fragment_tags:
-					fragment_tags[s]['GALLERY'] = f'{self.scrape_with_prefix}{s}'
+					fragment_tags[s]['GALLERY'] = f'{config.scrape_with_prefix}{s}'
 				else:
-					fragment_tags[s] = {'GALLERY': f'{self.scrape_with_prefix}{s}'}
+					fragment_tags[s] = {'GALLERY': f'{config.scrape_with_prefix}{s}'}
 
 		if config.fragment_scrape_movies:
 			for s in self.client.list_movie_scrapers('FRAGMENT'):
 				if s in fragment_tags:
-					fragment_tags[s]['MOVIE'] = f'{self.scrape_with_prefix}{s}'
+					fragment_tags[s]['MOVIE'] = f'{config.scrape_with_prefix}{s}'
 				else:
-					fragment_tags[s] = {'MOVIE': f'{self.scrape_with_prefix}{s}'}
+					fragment_tags[s] = {'MOVIE': f'{config.scrape_with_prefix}{s}'}
 
 		# might need to handle separately
 		# if config.fragment_scrape_performers:
 		# 	for s in self.client.list_performer_scrapers('FRAGMENT'):
-		# 		fragment_tags[s] = f'{self.scrape_with_prefix}p_{s}'
+		# 		fragment_tags[s] = f'{config.scrape_with_prefix}p_{s}'
 
 		return fragment_tags
 
 	def list_all_control_tags(self):
-		control_tags = [ self.bulk_url_control_tag ]
+		control_tags = [ config.bulk_url_control_tag, config.bulk_stash_box_control_tag ]
 		for supported_types in self.list_all_fragment_tags().values():
 			control_tags.extend( supported_types.values() )
 		return control_tags
@@ -550,10 +550,9 @@ class ScrapeController:
 					performer_ids.append(performer.get('stored_id'))
 				elif config.create_missing_performers and performer.get('name') != "":
 					# not expecting much from a scene scraper besides a name and url for a performer
-					perf_in = {
-						'name': " ".join(x.capitalize() for x in performer.get('name').split(" ")),
-						'url':  performer.get('url')
-					}
+					perf_in = { 'name': " ".join(x.capitalize() for x in performer.get('name').split(" ")) }
+					if performer.get('url'):
+						perf_in['url'] = performer.get('url')
 					log.info(f'Create missing performer: {perf_in.get("name")}')
 					performer_ids.append(self.client.create_performer(perf_in))
 			if len(performer_ids) > 0:
@@ -685,7 +684,7 @@ def dict_query(dictIn, query, default=None):
 				val = dict.get(dictIn, key, default)
 
 			if not val:
-				break;
+				break
 
 		return val
 
