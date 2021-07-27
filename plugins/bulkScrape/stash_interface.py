@@ -209,7 +209,7 @@ class StashInterface:
     def create_performer(self, performer_data):
         query = """
             mutation($input: PerformerCreateInput!) {
-                performerCreate(input: $performer_data) {
+                performerCreate(input: $input) {
                     id
                 }
             }
