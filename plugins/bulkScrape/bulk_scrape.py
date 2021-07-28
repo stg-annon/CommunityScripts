@@ -18,7 +18,7 @@ config = SimpleNamespace()
 config.create_missing_performers = False
 config.create_missing_tags = True
 config.create_missing_studios = True
-config.create_missing_movies = False
+config.create_missing_movies = True
 
 # url scrape config
 config.bulk_url_scrape_scenes = True
@@ -31,6 +31,9 @@ config.fragment_scrape_scenes = True
 config.fragment_scrape_galleries = True
 config.fragment_scrape_movies = True
 config.fragment_scrape_performers = False
+
+# stashbox scrape config
+config.stashbox_target = "stashdb.org"
 
 # Delay between web requests
 # Default: 5
@@ -77,6 +80,9 @@ def run(json_input, output):
 			scraper.bulk_url_scrape()
 		if mode_arg == "fragment_scrape":
 			scraper.bulk_fragment_scrape()
+		if mode_arg == "stashbox_scrape":
+			scraper.bulk_stashbox_scrape()
+			
 
 	except Exception:
 		raise
@@ -212,6 +218,43 @@ class ScrapeController:
 
 		return None
 
+	def bulk_stashbox_scrape(self):
+
+		submit_fingerprints = True
+
+		stashbox = None
+		for i, sbox in enumerate(self.client.list_stashboxes()):
+			if config.stashbox_target in sbox.endpoint:
+				stashbox = sbox
+				stashbox.index = i
+
+		if not stashbox:
+			log.error(f'Could not find a stash-box config for {config.stashbox_target}')
+			return None
+
+		scenes = self.client.find_scenes_with_tag({'name': config.bulk_stash_box_control_tag})
+
+		log.info(f'Scraping {len(scenes)} items from stashbox')
+
+		scene_ids = [i.get('id') for i in scenes if i.get('id')]
+		scraped_data  = self.client.stashbox_scene_scraper(scene_ids, stashbox_index=stashbox.index)
+
+		log.info(f'found {len(scraped_data)} results from stashbox')
+
+		updated_scene_ids = self.__update_scenes_with_stashbox_data(scenes, scraped_data, stashbox)
+
+		log.info(f'Scraped {len(updated_scene_ids)} scenes from stashbox')
+
+		if len(updated_scene_ids) > 0 and submit_fingerprints:
+			log.info(f'Submitting scene fingerprints to stashbox')
+			success = self.client.stashbox_submit_scene_fingerprints(updated_scene_ids, stashbox_index=stashbox.index)
+			if success:
+				log.info(f'Submission Successful')
+			else:
+				log.info(f'Failed to submit fingerprint')
+
+		return None
+		
 
 
 	def list_all_fragment_tags(self):
@@ -261,6 +304,86 @@ class ScrapeController:
 		return control_ids
 
 
+
+	def __update_scenes_with_stashbox_data(self, scenes, scraped_data, stashbox):
+
+		# will match durations -/+ this value
+		allowed_durr_diff = 25 
+
+		# % of matching fingerprints required to match
+		durr_match_percnt = 0.9
+
+		# minimum number of fingerprints a scene must have to match
+		min_fingerprint_count = 5
+
+		scene_update_ids = []
+
+		total = len(scenes)
+
+		for i, scene in enumerate(scenes):
+
+			# Update status bar
+			log.progress(i/total)
+
+			matches = []
+
+			for scene_data in scraped_data:
+
+				id_match = SimpleNamespace()
+				id_match.oshash = False
+				id_match.phash = False
+				id_match.duration = 0
+				id_match.fingerprint_count = len(scene_data.get('fingerprints'))
+				id_match.data = scene_data
+
+				for fingerprint in scene_data.get('fingerprints'):
+					if scene.get('phash') == fingerprint.get('hash'):
+						id_match.phash = True
+					if scene.get('oshash') == fingerprint.get('hash'):
+						id_match.oshash = True
+
+					if not scene.get('file').get('duration') or not fingerprint.get('duration'):
+						continue
+
+					durr_diff = abs(scene.get('file').get('duration') - fingerprint.get('duration'))
+					if durr_diff <= allowed_durr_diff:
+						id_match.duration += 1
+				
+				if (id_match.oshash or id_match.phash) and (id_match.duration / id_match.fingerprint_count >= durr_match_percnt) and (id_match.fingerprint_count >= min_fingerprint_count):
+					matches.append(id_match)
+
+
+			if len(matches) <= 0:
+				log.info(f"Could not find a result for ({scene.get('id')})")
+				continue
+
+			if len(matches) > 1:
+				log.info(f"Multuple result for ({scene.get('id')}) skipping")
+				continue
+
+			m = matches[0]
+
+			log.debug(f'PHASH:{m.phash} OSHASH:{m.oshash} DUR:{m.duration}/{m.fingerprint_count}')
+
+			if m.data.remote_site_id:
+				m.data['stash_ids'] = [{
+					'endpoint': stashbox.endpoint,
+					'stash_id': m.data.remote_site_id
+				}]
+
+			if m.data.performers:
+				for p in m.data.performers:
+					p.stash_ids = [{
+						'endpoint': stashbox.endpoint,
+						'stash_id': p.remote_site_id
+					}]
+
+			if self.__update_scene_with_scrape_data(scene, m.data):
+				scene_update_ids.append(scene.get('id'))
+
+		return scene_update_ids
+
+
 	def __scrape_with_fragment(self, scrape_type, scraper_id, items, __scrape, __update):
 		last_request = -1
 		if self.delay > 0:
@@ -278,7 +401,7 @@ class ScrapeController:
 			log.progress(i/total)
 
 			self.wait()
-			scraped_data = __scrape(item, scraper_id)
+			scraped_data = __scrape(scraper_id, item)
 
 			if scraped_data is None:
 				log.info(f"Scraper ({scraper_id}) did not return a result for {scrape_type} ({item.get('id')}) ")
@@ -373,77 +496,71 @@ class ScrapeController:
 		if scraped_data.get('image'):
 			update_data['cover_image'] = scraped_data.get('image')
 		
-		if scraped_data.get('tags'):
+		if scraped_data.tags:
 			tag_ids = list()
-			for tag in scraped_data.get('tags'):
-				if tag.get('stored_id'):
-					tag_ids.append(tag.get('stored_id'))
-				elif config.create_missing_tags and tag.get('name') != "":
-					# Capitalize each word
-					tag_name = " ".join(x.capitalize() for x in tag.get('name').split(" "))
+			for tag in scraped_data.tags:
+				if tag.stored_id:
+					tag_ids.append(tag.stored_id)
+				elif config.create_missing_tags and tag.name:
+					tag_name = caps_string(tag.name)
 					log.info(f'Create missing tag: {tag_name}')
 					tag_ids.append(self.client.create_tag({'name':tag_name}))
 			if len(tag_ids) > 0:
 				update_data['tag_ids'] = tag_ids
 
-		if scraped_data.get('performers'):
+		if scraped_data.performers:
 			performer_ids = list()
-			for performer in scraped_data.get('performers'):
-				if performer.get('stored_id'):
-					performer_ids.append(performer.get('stored_id'))
-				elif config.create_missing_performers and performer.get('name') != "":
-					# not expecting much from a scene scraper besides a name and url for a performer
-					perf_in = {
-						'name': " ".join(x.capitalize() for x in performer.get('name').split(" ")),
-						'url':  performer.get('url')
-					}
+			for performer in scraped_data.performers:
+				if performer.stored_id:
+					performer_ids.append(performer.stored_id)
+				elif config.create_missing_performers and performer.name:
+					perf_in = { 'name': caps_string(performer.name) }
+					if performer.url:
+						perf_in['url'] = performer.url
 					log.info(f'Create missing performer: {perf_in.get("name")}')
 					performer_ids.append(self.client.create_performer(perf_in))
 			if len(performer_ids) > 0:
 				update_data['performer_ids'] = performer_ids
 
-		if scraped_data.get('studio'):
-			log.debug(json.dumps(scraped_data.get('studio')))
-			if dict_query(scraped_data, 'studio.stored_id'):
-				update_data['studio_id'] = dict_query(scraped_data, 'studio.stored_id')
+		if scraped_data.studio:
+			if scraped_data.studio.stored_id:
+				update_data['studio_id'] = scraped_data.studio.stored_id
 			elif config.create_missing_studios:
-				studio = {}
-				studio["name"] = " ".join(x.capitalize() for x in dict_query(scraped_data, 'studio.name').split(" "))
-				studio["url"] = '{uri.scheme}://{uri.netloc}'.format(uri=urlparse(scene.get('url')))
+				studio = {
+					"name": caps_string(scraped_data.studio.name),
+					"url": '{uri.scheme}://{uri.netloc}'.format(uri=urlparse(scraped_data.studio.url))
+				}
 				log.info(f'Creating missing studio {studio.get("name")}')
 				update_data['studio_id'] = self.client.create_studio(studio)
 
-		if scraped_data.get('movies'):
+		if scraped_data.movies:
 			movie_ids = list()
-			for movie in scraped_data.get('movies'):
-				if movie.get('stored_id'):
-					movie_id = movie.get('stored_id')
-					movie_ids.append( {'movie_id':movie_id, 'scene_index':None} )
-				elif config.create_missing_movies and movie.get('name') != "":
-					log.info(f'Create missing movie: "{movie.get("name")}"')
+			for movie in scraped_data.movies:
+				if movie.stored_id:
+					movie_ids.append( {'movie_id':movie.stored_id, 'scene_index':None} )
+				elif config.create_missing_movies and movie.name:
+					log.info(f'Create missing movie: "{movie.name}"')
 					
 					movie_data = {
-						'name': movie.get('name')
+						'name': movie.name
 					}
-
-					if movie.get('url'):
-						movie_data['url'] = movie.get('url')
-
-					if movie.get('synopsis'):
-						movie_data['synopsis'] = movie.get('synopsis')
-					if movie.get('date'):
-						movie_data['date'] = movie.get('date')
-					if movie.get('aliases'):
-						movie_data['aliases'] = movie.get('aliases')
+					for attr in ['url', 'synopsis', 'date', 'aliases']:
+						if movie[attr]:
+							movie_data[attr] = movie[attr]
 
 					try:
-						movie_id = self.client.create_movie(movie_data)
-						movie_ids.append( {'movie_id':movie_id, 'scene_index':None} )
+						movie_ids.append( {'movie_id':self.client.create_movie(movie_data), 'scene_index':None} )
 					except Exception as e:
 						log.error('update error')
 
 			if len(movie_ids) > 0:
 				update_data['movies'] = movie_ids
+
+		if scraped_data.get('stash_ids'):
+			if scene.get('stash_ids'):
+				update_data['stash_ids'] = scene.get('stash_ids').extend(scraped_data.get('stash_ids'))
+			else:
+				update_data['stash_ids'] = scraped_data.get('stash_ids')
 
 		log.debug('mapped scrape data to scene fields')
 
@@ -451,19 +568,8 @@ class ScrapeController:
 		if update_data.get('cover_image') and not update_data.get('cover_image').startswith("data:image"):
 			del update_data['cover_image']
 
-
-		# Merge existing tags ignoring plugin control tags
-		merged_tags = set()
-
-		control_tag_ids = self.get_control_tag_ids()
-		for tag in scene.get('tags'):
-			if tag.get('id') not in control_tag_ids:
-				merged_tags.add(tag.get('id'))
-		if update_data.get('tag_ids'):
-			merged_tags.update(update_data.get('tag_ids'))
-
-		update_data['tag_ids'] = list(merged_tags)
-
+		scene_tag_ids = [t.id for t in scene.tags]
+		update_data['tag_ids'] = self.__merge_tags(scene_tag_ids, update_data.get('tag_ids'))
 
 		# Update scene with scraped scene data
 		try:
@@ -490,7 +596,7 @@ class ScrapeController:
 			self.client.scrape_gallery_url,
 			self.__update_gallery_with_scrape_data
 		)
-	def __update_gallery_with_scrape_data(self, gallery, scraped_data):
+	def __update_gallery_with_scrape_data(self, gallery, scraped):
 
 		# Expecting ScrapedGallery {
 		# 		title
@@ -527,30 +633,28 @@ class ScrapeController:
 			'date'
 		]
 		for attr in common_attrabutes:
-			if scraped_data.get(attr):
-				update_data[attr] = scraped_data.get(attr)
+			if scraped[attr]:
+				update_data[attr] = scraped[attr]
 		
-		if scraped_data.get('tags'):
+		if scraped.tags:
 			tag_ids = list()
-			for tag in scraped_data.get('tags'):
-				if tag.get('stored_id'):
-					tag_ids.append(tag.get('stored_id'))
-				elif config.create_missing_tags and tag.get('name') != "":
-					# Capitalize each word
-					tag_name = " ".join(x.capitalize() for x in tag.get('name').split(" "))
+			for tag in scraped.tags:
+				if tag.stored_id:
+					tag_ids.append(tag.stored_id)
+				elif config.create_missing_tags and tag.name:
+					tag_name = caps_string(tag.name)
 					log.info(f'Create missing tag: {tag_name}')
 					tag_ids.append(self.client.create_tag({'name':tag_name}))
 			if len(tag_ids) > 0:
 				update_data['tag_ids'] = tag_ids
 
-		if scraped_data.get('performers'):
+		if scraped.performers:
 			performer_ids = list()
-			for performer in scraped_data.get('performers'):
-				if performer.get('stored_id'):
-					performer_ids.append(performer.get('stored_id'))
-				elif config.create_missing_performers and performer.get('name') != "":
-					# not expecting much from a scene scraper besides a name and url for a performer
-					perf_in = { 'name': " ".join(x.capitalize() for x in performer.get('name').split(" ")) }
+			for performer in scraped.performers:
+				if performer.stored_id:
+					performer_ids.append(performer.stored_id)
+				elif config.create_missing_performers and performer.name:
+					perf_in = { 'name': caps_string(performer.name) }
 					if performer.get('url'):
 						perf_in['url'] = performer.get('url')
 					log.info(f'Create missing performer: {perf_in.get("name")}')
@@ -558,29 +662,19 @@ class ScrapeController:
 			if len(performer_ids) > 0:
 				update_data['performer_ids'] = performer_ids
 
-		if scraped_data.get('studio'):
-			log.debug(json.dumps(scraped_data.get('studio')))
-			if dict_query(scraped_data, 'studio.stored_id'):
-				update_data['studio_id'] = dict_query(scraped_data, 'studio.stored_id')
+		if scraped.studio:
+			if scraped.studio.stored_id:
+				update_data['studio_id'] = scraped.studio.stored_id
 			elif config.create_missing_studios:
-				studio = {}
-				studio["name"] = " ".join(x.capitalize() for x in dict_query(scraped_data, 'studio.name').split(" "))
-				studio["url"] = '{uri.scheme}://{uri.netloc}'.format(uri=urlparse(gallery.get('url')))
+				studio = {
+					'name': caps_string(scraped.studio.name),
+					'url': '{uri.scheme}://{uri.netloc}'.format(uri=urlparse(scraped.studio.url))
+				}
 				log.info(f'Creating missing studio {studio.get("name")}')
 				update_data['studio_id'] = self.client.create_studio(studio)
 
-		# Merge existing tags ignoring plugin control tags
-		merged_tags = set()
-
-		control_tag_ids = self.get_control_tag_ids()
-		for tag in gallery.get('tags'):
-			if tag.get('id') not in control_tag_ids:
-				merged_tags.add(tag.get('id'))
-		if update_data.get('tag_ids'):
-			merged_tags.update(update_data.get('tag_ids'))
-
-		update_data['tag_ids'] = list(merged_tags)
-
+		gallery_tag_ids = [t.id for t in gallery.tags]
+		update_data['tag_ids'] = self.__merge_tags(gallery_tag_ids, update_data.get('tag_ids'))
 
 		# Update scene with scraped scene data
 		try:
@@ -666,26 +760,17 @@ class ScrapeController:
 		return True
 
 
-# simple function to address large nested python dicts with dot notation 
-def dict_query(dictIn, query, default=None):
-		if not isinstance(dictIn, dict):
-			raise TypeError(f"dict_query expects python dict received {type(dictIn)}")
-		
-		keys = query.split(".")
-		val = None
+	def __merge_tags(self, old_tag_ids, new_tag_ids):
+		merged_tags = set()
+		ctrl_tag_ids = self.get_control_tag_ids()
+		merged_tags.update([t for t in old_tag_ids if t not in ctrl_tag_ids])
+		if new_tag_ids:
+			merged_tags.update(new_tag_ids)
+		return list(merged_tags)
 
-		for key in keys:
-			if val:
-				if isinstance(val, list):
-					val = [ v.get(key, default) if v else None for v in val]
-				else:
-					val = val.get(key, default)
-			else:
-				val = dict.get(dictIn, key, default)
+# Capitalize each word in a string
+def caps_string(string, delim=" "):
+	return delim.join(x.capitalize() for x in string.split(delim))
 
-			if not val:
-				break
-
-		return val
 
 main()

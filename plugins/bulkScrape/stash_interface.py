@@ -3,12 +3,13 @@ import sys
 import log
 import re
 
+from box import Box
 
 class StashInterface:
     port = ""
     url = ""
     headers = {
-        "Accept-Encoding": "gzip, deflate, br",
+        "Accept-Encoding": "gzip, deflate",
         "Content-Type": "application/json",
         "Accept": "application/json",
         "Connection": "keep-alive",
@@ -57,19 +58,20 @@ class StashInterface:
 
         query = self.__resolveFragments(query)
 
-        json = {'query': query}
+        json_request = {'query': query}
         if variables is not None:
-            json['variables'] = variables
+            json_request['variables'] = variables
 
-        response = requests.post(self.url, json=json, headers=self.headers, cookies=self.cookies)
-
+        response = requests.post(self.url, json=json_request, headers=self.headers, cookies=self.cookies)
+        
         if response.status_code == 200:
             result = response.json()
-            if result.get("error", None):
+
+            if result.get("error"):
                 for error in result["error"]["errors"]:
                     raise Exception("GraphQL error: {}".format(error))
-            if result.get("data", None):
-                return result.get("data")
+            if result.get("data"):
+                return Box(result.get("data"))
         elif response.status_code == 401:
             sys.exit("HTTP Error 401, Unauthorised. Cookie authentication most likely failed")
         else:
@@ -107,6 +109,23 @@ class StashInterface:
             result = self.__callGraphQL(query)
         log.debug("ScanResult" + str(result))
 
+    def list_stashboxes(self):
+        query = """
+            query Configuration {
+                configuration {
+                    general{
+                        stashBoxes{
+                            name
+                            endpoint
+                            api_key
+                        }
+                    }
+                }
+            }
+        """
+
+        result = self.__callGraphQL(query)
+        return result.get('configuration').get('general').get('stashBoxes')
 
     def get_tag_id_from_name(self, name):
         for tag in self.find_tags(q=name):
@@ -434,6 +453,10 @@ class StashInterface:
           "scene_id": scene_id,
           "primary_tag_id": primary_tag_id
         }
+        
+        result = self.__callGraphQL(query, variables)
+        return result.sceneMarkerCreate
+
     def find_scene_markers(self, sceneID):
         query = """
             query { findScene(id: $sceneID) {
@@ -566,9 +589,44 @@ class StashInterface:
         }
         return self.find_galleries(f=gallery_filter)
 
+    # Stash Box
+    def stashbox_scene_scraper(self, scene_ids, stashbox_index=0):
+        query = """
+            query QueryStashBoxScene($input: StashBoxSceneQueryInput!) {
+                queryStashBoxScene(input: $input) {
+                    ...scrapedScene
+                }
+            }
+        """
+        variables = {
+            "input": {
+                "scene_ids": scene_ids,
+                "stash_box_index": stashbox_index
+            }
+        }
+
+        result = self.__callGraphQL(query, variables)
+
+        return result["queryStashBoxScene"]
+
+    def stashbox_submit_scene_fingerprints(self, scene_ids, stashbox_index=0):
+        query = """
+            mutation SubmitStashBoxFingerprints($input: StashBoxFingerprintSubmissionInput!) {
+                submitStashBoxFingerprints(input: $input)
+            }
+        """
+        variables = {
+            "input": {
+                "scene_ids": scene_ids,
+                "stash_box_index": stashbox_index
+            }
+        }
+
+        result = self.__callGraphQL(query, variables)
+        return result['submitStashBoxFingerprints']
 
     # Fragment Scrape
-    def run_scene_scraper(self, scene, scraper):
+    def run_scene_scraper(self, scraper_id, scene):
         query = """query ScrapeScene($scraper_id: ID!, $scene: SceneUpdateInput!) {
            scrapeScene(scraper_id: $scraper_id, scene: $scene) {
               ...scrapedScene
@@ -576,7 +634,7 @@ class StashInterface:
           }
         """
         variables = {
-            "scraper_id": scraper,
+            "scraper_id": scraper_id,
             "scene": {
                 "id": scene["id"],
                 "title": scene["title"],
@@ -744,6 +802,7 @@ stash_gql_fragments = {
         fragment scrapedSceneTag on ScrapedSceneTag {
             stored_id
             name
+            __typename
         }
     """,
     "scrapedSceneMovie": """
@@ -757,6 +816,7 @@ stash_gql_fragments = {
             director
             synopsis
             url
+            __typename
         }
     """,
     "scrapedSceneStudio": """
@@ -765,6 +825,7 @@ stash_gql_fragments = {
             name
             url
             remote_site_id
+            __typename
         }
     """,
     "scrapedPerformer":"""
@@ -818,6 +879,7 @@ stash_gql_fragments = {
             id
             name
             url
+            __typename
         }
     """,
     "stashSceneUpdate":"""
@@ -834,6 +896,7 @@ stash_gql_fragments = {
             movies
             tag_ids
             stash_ids
+            __typename
         }
     """,
     "stashScene":"""
@@ -841,6 +904,7 @@ stash_gql_fragments = {
           id
           checksum
           oshash
+          phash
           title
           details
           url
@@ -898,6 +962,7 @@ stash_gql_fragments = {
             endpoint
             stash_id
           }
+          __typename
         }
     """,
     "stashGallery":"""
@@ -930,22 +995,8 @@ stash_gql_fragments = {
             scenes {
                 id
                 title
-                path
             }
-        }
-    """,
-    "stashSceneAsUpdate":"""
-        fragment stashSceneAsUpdate on Scene {
-          id
-          title
-          details
-          url
-          date
-          rating
-          organized
-          tags { id }
-          performers { id }
-          studio{ id }
+            __typename
         }
     """,
     "stashPerformer":"""
@@ -995,6 +1046,7 @@ stash_gql_fragments = {
             seconds
             primary_tag { ...stashTag }
             tags { ...stashTag }
+            __typename
         }
     """,
     "stashMovie":"""
@@ -1012,6 +1064,7 @@ stash_gql_fragments = {
             created_at
             updated_at
             scene_count
+            __typename
         }
     """,
     "stashTag":"""
@@ -1021,6 +1074,7 @@ stash_gql_fragments = {
             aliases
             image_path
             scene_count
+            __typename
         }
     """
 }

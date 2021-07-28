@@ -23,3 +23,7 @@ tasks:
     description: run fragment scrapers on scenes with relevent fragment tag
     defaultArgs:
       mode: fragment_scrape
+  - name: Stash-Box Scrape
+    description: run stashbox scraper on all scenes with control tag
+    defaultArgs:
+      mode: stashbox_scrape
