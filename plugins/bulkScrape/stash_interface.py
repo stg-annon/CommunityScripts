@@ -577,7 +577,7 @@ class StashInterface:
         """
         variables = {
             "scraper_id": scraper,
-            "gallery": {
+            "scene": {
                 "id": scene["id"],
                 "title": scene["title"],
                 "date": scene["date"],
