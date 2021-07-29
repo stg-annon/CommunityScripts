@@ -54,8 +54,6 @@ config.scrape_with_prefix = "blk_scrape_"
 ############################################################################
 
 
-
-
 def main():
 	json_input = json.loads(sys.stdin.read())
 
@@ -127,7 +125,6 @@ class ScrapeController:
 					time.sleep(self.delay - (time_now - time_last) + 1)
 			self.last_wait_time = time.time()
 
-
 	def add_tags(self):
 		tags = self.list_all_control_tags()
 		for tag_name in tags:
@@ -137,7 +134,6 @@ class ScrapeController:
 				log.info(f"adding tag {tag_name}")
 			else:
 				log.debug(f"tag exists, {tag_name}")
-
 	def remove_tags(self):
 		tags = self.list_all_control_tags()
 		for tag_name in tags:
@@ -201,7 +197,6 @@ class ScrapeController:
 			log.info(f'Scraped data for {count} movies')
 
 		return None
-
 	def bulk_fragment_scrape(self):
 		# Scrape Everything enabled in config
 
@@ -218,7 +213,6 @@ class ScrapeController:
 					self.__scrape_galleries_with_fragment(galleries, scraper_id)
 
 		return None
-
 	def bulk_stashbox_scrape(self):
 
 		submit_fingerprints = True
@@ -255,8 +249,6 @@ class ScrapeController:
 				log.info(f'Failed to submit fingerprint')
 
 		return None
-		
-
 
 	def list_all_fragment_tags(self):
 		fragment_tags = {}
@@ -288,13 +280,11 @@ class ScrapeController:
 		# 		fragment_tags[s] = f'{config.scrape_with_prefix}p_{s}'
 
 		return fragment_tags
-
 	def list_all_control_tags(self):
 		control_tags = [ config.bulk_url_control_tag, config.bulk_stash_box_control_tag ]
 		for supported_types in self.list_all_fragment_tags().values():
 			control_tags.extend( supported_types.values() )
 		return control_tags
-
 	def get_control_tag_ids(self):
 		control_ids = list()
 		for tag_name in self.list_all_control_tags():
@@ -303,87 +293,6 @@ class ScrapeController:
 				continue
 			control_ids.append(tag_id)
 		return control_ids
-
-
-
-	def __update_scenes_with_stashbox_data(self, scenes, scraped_data, stashbox):
-
-		# will match durations -/+ this value
-		allowed_durr_diff = 25 
-
-		# % of matching fingerprints required to match
-		durr_match_percnt = 0.9
-
-		# minimum number of fingerprints a scene must have to match
-		min_fingerprint_count = 5
-
-		scene_update_ids = []
-
-		total = len(scenes)
-
-		for i, scene in enumerate(scenes):
-
-			# Update status bar
-			log.progress(i/total)
-
-			matches = []
-
-			for scene_data in scraped_data:
-
-				id_match = SimpleNamespace()
-				id_match.oshash = False
-				id_match.phash = False
-				id_match.duration = 0
-				id_match.fingerprint_count = len(scene_data.get('fingerprints'))
-				id_match.data = scene_data
-
-				for fingerprint in scene_data.get('fingerprints'):
-					if scene.get('phash') == fingerprint.get('hash'):
-						id_match.phash = True
-					if scene.get('oshash') == fingerprint.get('hash'):
-						id_match.oshash = True
-
-					if not scene.get('file').get('duration') or not fingerprint.get('duration'):
-						continue
-
-					durr_diff = abs(scene.get('file').get('duration') - fingerprint.get('duration'))
-					if durr_diff <= allowed_durr_diff:
-						id_match.duration += 1
-				
-				if (id_match.oshash or id_match.phash) and (id_match.duration / id_match.fingerprint_count >= durr_match_percnt) and (id_match.fingerprint_count >= min_fingerprint_count):
-					matches.append(id_match)
-
-
-			if len(matches) <= 0:
-				log.info(f"Could not find a result for ({scene.get('id')})")
-				continue
-
-			if len(matches) > 1:
-				log.info(f"Multuple result for ({scene.get('id')}) skipping")
-				continue
-
-			m = matches[0]
-
-			log.debug(f'PHASH:{m.phash} OSHASH:{m.oshash} DUR:{m.duration}/{m.fingerprint_count}')
-
-			if m.data.remote_site_id:
-				m.data['stash_ids'] = [{
-					'endpoint': stashbox.endpoint,
-					'stash_id': m.data.remote_site_id
-				}]
-
-			if m.data.performers:
-				for p in m.data.performers:
-					p.stash_ids = [{
-						'endpoint': stashbox.endpoint,
-						'stash_id': p.remote_site_id
-					}]
-
-			if self.__update_scene_with_scrape_data(scene, m.data):
-				scene_update_ids.append(scene.get('id'))
-
-		return scene_update_ids
-
 
 	def __scrape_with_fragment(self, scrape_type, scraper_id, items, __scrape, __update):
 		last_request = -1
@@ -581,6 +490,83 @@ class ScrapeController:
 			log.error(str(e))
 
 		return True
+	def __update_scenes_with_stashbox_data(self, scenes, scraped_data, stashbox):
+
+		# will match durations -/+ this value
+		allowed_durr_diff = 25 
+
+		# % of matching fingerprints required to match
+		durr_match_percnt = 0.9
+
+		# minimum number of fingerprints a scene must have to match
+		min_fingerprint_count = 5
+
+		scene_update_ids = []
+
+		total = len(scenes)
+
+		for i, scene in enumerate(scenes):
+
+			# Update status bar
+			log.progress(i/total)
+
+			matches = []
+
+			for scene_data in scraped_data:
+
+				id_match = SimpleNamespace()
+				id_match.oshash = False
+				id_match.phash = False
+				id_match.duration = 0
+				id_match.fingerprint_count = len(scene_data.get('fingerprints'))
+				id_match.data = scene_data
+
+				for fingerprint in scene_data.get('fingerprints'):
+					if scene.get('phash') == fingerprint.get('hash'):
+						id_match.phash = True
+					if scene.get('oshash') == fingerprint.get('hash'):
+						id_match.oshash = True
+
+					if not scene.get('file').get('duration') or not fingerprint.get('duration'):
+						continue
+
+					durr_diff = abs(scene.get('file').get('duration') - fingerprint.get('duration'))
+					if durr_diff <= allowed_durr_diff:
+						id_match.duration += 1
+				
+				if (id_match.oshash or id_match.phash) and (id_match.duration / id_match.fingerprint_count >= durr_match_percnt) and (id_match.fingerprint_count >= min_fingerprint_count):
+					matches.append(id_match)
+
+
+			if len(matches) <= 0:
+				log.info(f"Could not find a result for ({scene.get('id')})")
+				continue
+
+			if len(matches) > 1:
+				log.info(f"Multuple result for ({scene.get('id')}) skipping")
+				continue
+
+			m = matches[0]
+
+			log.debug(f'PHASH:{m.phash} OSHASH:{m.oshash} DUR:{m.duration}/{m.fingerprint_count}')
+
+			if m.data.remote_site_id:
+				m.data['stash_ids'] = [{
+					'endpoint': stashbox.endpoint,
+					'stash_id': m.data.remote_site_id
+				}]
+
+			if m.data.performers:
+				for p in m.data.performers:
+					p.stash_ids = [{
+						'endpoint': stashbox.endpoint,
+						'stash_id': p.remote_site_id
+					}]
+
+			if self.__update_scene_with_scrape_data(scene, m.data):
+				scene_update_ids.append(scene.get('id'))
+
+		return scene_update_ids
 
 	def __scrape_galleries_with_fragment(self, galleries, scraper_id):
 		return self.__scrape_with_fragment(
@@ -744,10 +730,10 @@ class ScrapeController:
 			'back_image'
 		]
 		# here because durration value from scraped movie is string where update preferrs an int need to cast to and int (seconds)
-		if scraped_data.duration:
-			h,m,s = scraped_data.duration.split(':')
-			durr = datetime.timedelta(hours=int(h),minutes=int(m),seconds=int(s)).total_seconds()
-			update_data['duration'] = int(durr)
+		# if scraped_data.duration:
+		# 	h,m,s = scraped_data.duration.split(':')
+		# 	durr = datetime.timedelta(hours=int(h),minutes=int(m),seconds=int(s)).total_seconds()
+		# 	update_data['duration'] = int(durr)
 
 		for attr in common_attrabutes:
 			if scraped_data[attr]:
@@ -764,7 +750,6 @@ class ScrapeController:
 			return False
 
 		return True
-
 
 	def __merge_tags(self, old_tag_ids, new_tag_ids):
 		merged_tags = set()
