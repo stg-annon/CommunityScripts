@@ -1,6 +1,7 @@
 import json
 import sys
 import time
+import datetime
 from urllib.parse import urlparse
 from types import SimpleNamespace
 
@@ -459,11 +460,11 @@ class ScrapeController:
 					continue
 
 				success = __update(item, scraped_data)
-				if not success:
+				if success:
+					log.debug(f"Scraped data for {scrape_type} {item.get('id')}")
+					count += 1
+				else:
 					log.warning(f"Failed to scrape {scrape_type} {item.get('id')}")
-
-				log.debug(f"Scraped data for {scrape_type} {item.get('id')}")
-				count += 1
 
 		return count
 
@@ -699,7 +700,7 @@ class ScrapeController:
 		# Expecting  ScrapedMovie {
 		# 		name
 		# 		aliases
-		# 		duration
+		# 		duration STRING
 		# 		date
 		# 		rating
 		# 		director
@@ -716,7 +717,7 @@ class ScrapeController:
 		# 		id
 		#     name
 		# 		aliases
-		# 		duration
+		# 		duration INT
 		# 		date
 		# 		rating
 		#     studio_id
@@ -728,13 +729,12 @@ class ScrapeController:
 		# }
 
 		update_data = {
-			'id': movie.get('id')
+			'id': movie.id
 		}
 
 		common_attrabutes = [
 			'name',
 			'aliases',
-			'duration',
 			'date',
 			'rating',
 			'director',
@@ -743,18 +743,24 @@ class ScrapeController:
 			'front_image',
 			'back_image'
 		]
+		# here because durration value from scraped movie is string where update preferrs an int need to cast to and int (seconds)
+		if scraped_data.duration:
+			h,m,s = scraped_data.duration.split(':')
+			durr = datetime.timedelta(hours=int(h),minutes=int(m),seconds=int(s)).total_seconds()
+			update_data['duration'] = int(durr)
 
 		for attr in common_attrabutes:
-			if scraped_data.get(attr):
-				update_data[attr] = scraped_data.get(attr)
+			if scraped_data[attr]:
+				update_data[attr] = scraped_data[attr]
 
-		if scraped_data.get('studio'):
-			update_data['studio_id'] = scraped_data.get('studio').get('id')
+		if scraped_data.studio:
+			update_data['studio_id'] = scraped_data.studio.id
 
 		try:
 			self.client.update_movie(update_data)
 		except Exception as e:
-			log.error('update movie error')
+			log.error('error updateing movie')			
+			log.error(str(e))
 			return False
 
 		return True
