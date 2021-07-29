@@ -69,10 +69,10 @@ class StashInterface:
 
             if result.get("errors"):
                 for error in result["errors"]:
-                    raise Exception("GraphQL error: {}".format(error))
+                    log.error(f"GraphQL error: {error}")
             if result.get("error"):
                 for error in result["error"]["errors"]:
-                    raise Exception("GraphQL error: {}".format(error))
+                    log.error(f"GraphQL error: {error}")
             if result.get("data"):
                 return Box(result['data'])
         elif response.status_code == 401:
