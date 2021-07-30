@@ -861,7 +861,6 @@ stash_gql_fragments = {
             tags { ...scrapedSceneTag }
             image
             details
-            favorite
             death_date
             hair_color
             weight
