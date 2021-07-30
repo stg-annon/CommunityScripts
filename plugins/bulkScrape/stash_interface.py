@@ -714,6 +714,18 @@ class StashInterface:
         variables = { 'url': url }
         result = self.__callGraphQL(query, variables)
         return result['scrapeGalleryURL']
+        
+    def scrape_performer_url(self, url):
+        query = """
+            query($url: String!) {
+                scrapePerformerURL(url: $url) {
+                    ...scrapedPerformer
+                }
+            }
+        """
+        variables = { 'url': url }
+        result = self.__callGraphQL(query, variables)
+        return result['scrapePerformerURL']
 
 stash_gql_fragments = {
     "scrapedScene":"""
