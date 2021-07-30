@@ -723,7 +723,7 @@ class ScrapeController:
 		# Expecting to cast ScrapedPerformer to PerformerUpdateInput
 		# NOTE
 		# 	ScrapedPerformer.gender: String => PerformerUpdateInput.gender: GenderEnum
-		#   ScrapedPerformer.weight: String () => PerformerUpdateInput.weight: Int ()
+		#   ScrapedPerformer.weight: String (kg?) => PerformerUpdateInput.weight: Int (kg)
 
 		update_data = {
 			'id': performer.id
@@ -753,6 +753,10 @@ class ScrapeController:
 		for attr in common_attrabutes:
 			if scraped[attr]:
 				update_data[attr] = scraped[attr]
+
+		# cast String to Int, this assumes both values are the same unit and are just diffrent types
+		if scraped.weight:
+			update_data['weight'] = int(scraped.weight)
 
 		GENDER_ENUM = ["MALE","FEMALE","TRANSGENDER_MALE","TRANSGENDER_FEMALE", "INTERSEX", "NON_BINARY"]
 
