@@ -722,7 +722,7 @@ class ScrapeController:
 	def __update_performer_with_scrape_data(self, performer, scraped):
 		# Expecting to cast ScrapedPerformer to PerformerUpdateInput
 		# NOTE
-		# 	ScrapedPerformer.gender: String () => PerformerUpdateInput.gender: GenderENUM ()
+		# 	ScrapedPerformer.gender: String => PerformerUpdateInput.gender: GenderEnum
 		#   ScrapedPerformer.weight: String () => PerformerUpdateInput.weight: Int ()
 
 		update_data = {
@@ -754,8 +754,14 @@ class ScrapeController:
 			if scraped[attr]:
 				update_data[attr] = scraped[attr]
 
+		GENDER_ENUM = ["MALE","FEMALE","TRANSGENDER_MALE","TRANSGENDER_FEMALE", "INTERSEX", "NON_BINARY"]
+
 		if scraped.gender:
-			update_data['gender'] = scraped.gender.upper()
+			gender = scraped.gender.replace(' ', '_').upper()
+			if gender in GENDER_ENUM:
+				update_data['gender'] = gender
+			else:
+				log.warning(f'Could not map {scraped.gender} to a GenderEnum for performer {performer.id}')
 
 		self.client.update_performer(update_data)
 
