@@ -746,7 +746,6 @@ class ScrapeController:
 			'twitter',
 			'instagram',
 			'image',
-			'rating',
 			'details',
 			'death_date',
 			'hair_color'
