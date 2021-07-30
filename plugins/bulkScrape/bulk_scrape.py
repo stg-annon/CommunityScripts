@@ -755,8 +755,8 @@ class ScrapeController:
 			if scraped[attr]:
 				update_data[attr] = scraped[attr]
 
-		if scraped.studio:
-			update_data['studio_id'] = scraped.studio.id
+		if scraped.gender:
+			update_data['gender'] = scraped.gender.upper()
 
 		self.client.update_performer(update_data)
 
