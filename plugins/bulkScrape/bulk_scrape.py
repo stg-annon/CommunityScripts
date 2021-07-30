@@ -69,7 +69,7 @@ def run(json_input, output):
 	try:
 		client = StashInterface(json_input["server_connection"])
 		scraper = ScrapeController(client)
-		
+
 		if mode_arg == "create":
 			scraper.add_tags()
 		if mode_arg == "remove":
@@ -81,7 +81,7 @@ def run(json_input, output):
 			scraper.bulk_fragment_scrape()
 		if mode_arg == "stashbox_scrape":
 			scraper.bulk_stashbox_scrape()
-			
+
 
 	except Exception:
 		raise
@@ -145,6 +145,10 @@ class ScrapeController:
 			self.client.destroy_tag(tag_id)
 
 	def bulk_url_scrape(self):
+
+		log.info("Performing Bulk URL Scrape")
+		log.info("Progress bar will reset for each item type (scene, movie, ect.)")
+
 		# Scrape Everything enabled in config
 		tag_id = self.client.get_tag_id_from_name(config.bulk_url_control_tag)
 		if tag_id is None:
@@ -184,6 +188,23 @@ class ScrapeController:
 			log.info(f'Scraped data for {count} galleries')
 			log.info('##############################')
 
+		if config.bulk_url_scrape_performers:
+			performers = self.client.find_performers(f={
+				"tags": {
+					"value": [tag_id],
+					"modifier": "INCLUDES"
+				},
+				"url": {
+					"value": "",
+					"modifier": "NOT_NULL"
+				}
+			})
+
+			log.info(f'Found {len(performers)} performers with {config.bulk_url_control_tag} tag')
+			count = self.__scrape_performers_with_url(performers)
+			log.info(f'Scraped data for {count} performers')
+			log.info('##############################')
+
 		if config.bulk_url_scrape_movies:
 			movies = self.client.find_movies(f={
 				"is_missing": "front_image",
@@ -196,17 +217,19 @@ class ScrapeController:
 			count = self.__scrape_movies_with_url(movies)
 			log.info(f'Scraped data for {count} movies')
 
+
+
 		return None
 	def bulk_fragment_scrape(self):
 		# Scrape Everything enabled in config
 
 		for scraper_id, types in self.list_all_fragment_tags().items():
-			
+
 			if config.bulk_url_scrape_scenes:
 				if types.get('SCENE'):
 					scenes = self.client.find_scenes_with_tag({'name': types.get('SCENE')})
 					self.__scrape_scenes_with_fragment(scenes, scraper_id)
-			
+
 			if config.bulk_url_scrape_galleries:
 				if types.get('GALLERY'):
 					galleries = self.client.find_galleries_with_tag( {'name': types.get('GALLERY') } )
@@ -316,17 +339,19 @@ class ScrapeController:
 			if scraped_data is None:
 				log.info(f"Scraper ({scraper_id}) did not return a result for {scrape_type} ({item.get('id')}) ")
 				continue
-			else:
-				# No data has been found for this scene
-				if not any(scraped_data.values()):
-					log.info(f"Could not get data for {scrape_type} {item.get('id')}")
-					continue
 
-				success = __update(item, scraped_data)
-				if not success:
-					log.warning(f"Failed to scrape {scrape_type} {item.get('id')}")
+			# No data has been found for this scene
+			if not any(scraped_data.values()):
+				log.info(f"Could not get data for {scrape_type} {item.get('id')}")
+				continue
 
+			try:
+				__update(item, scraped_data)
+				log.debug(f"Updated data for {scrape_type} {item.get('id')}")
 				count += 1
+			except Exception as e:
+				log.error(f"Error updating {scrape_type} {item.get('id')}")
+				log.error(str(e))
 
 		return count
 
@@ -352,28 +377,33 @@ class ScrapeController:
 				log.info(f"{scrape_type} {item.get('id')} is missing url")
 				continue
 			netloc = urlparse(item.get("url")).netloc
-			if netloc in working_scrapers or netloc not in missing_scrapers:
-				log.info(f"Scraping URL for {scrape_type} {item.get('id')}")
-				self.wait()
-				scraped_data = __scrape(item.get('url'))
-				# If result is null, add url to missing_scrapers
-				if scraped_data is None:
-					log.warning(f"Missing scraper for {urlparse(item.get('url')).netloc}")
-					missing_scrapers.add(netloc)
-					continue
-				else:
-					working_scrapers.add(netloc)
-				# No data has been found for this item
-				if not any(scraped_data.values()):
-					log.info(f"Could not get data for {scrape_type} {item.get('id')}")
-					continue
+			if netloc in missing_scrapers and netloc not in working_scrapers:
+				continue
+			
+			self.wait()
+			log.info(f"Scraping URL for {scrape_type} {item.get('id')}")
 
-				success = __update(item, scraped_data)
-				if success:
-					log.debug(f"Scraped data for {scrape_type} {item.get('id')}")
-					count += 1
-				else:
-					log.warning(f"Failed to scrape {scrape_type} {item.get('id')}")
+			scraped_data = __scrape(item.get('url'))
+
+			# If result is null, add url to missing_scrapers
+			if scraped_data is None:
+				log.warning(f"Missing scraper for {urlparse(item.get('url')).netloc}")
+				missing_scrapers.add(netloc)
+				continue
+			else:
+				working_scrapers.add(netloc)
+			# No data has been found for this item
+			if not any(scraped_data.values()):
+				log.info(f"Could not get data for {scrape_type} {item.get('id')}")
+				continue
+
+			try:
+				__update(item, scraped_data)
+				log.debug(f"Updated data for {scrape_type} {item.get('id')}")
+				count += 1
+			except Exception as e:
+				log.error(f"Error updating {scrape_type} {item.get('id')}")
+				log.error(str(e))
 
 		return count
 
@@ -393,7 +423,7 @@ class ScrapeController:
 			self.__update_scene_with_scrape_data
 		)
 	def __update_scene_with_scrape_data(self, scene, scraped_data):
-		# Create dict with scene data
+		
 		update_data = {
 			'id': scene.get('id')
 		}
@@ -405,7 +435,7 @@ class ScrapeController:
 
 		if scraped_data.get('image'):
 			update_data['cover_image'] = scraped_data.get('image')
-		
+
 		if scraped_data.tags:
 			tag_ids = list()
 			for tag in scraped_data.tags:
@@ -450,7 +480,7 @@ class ScrapeController:
 					movie_ids.append( {'movie_id':movie.stored_id, 'scene_index':None} )
 				elif config.create_missing_movies and movie.name:
 					log.info(f'Create missing movie: "{movie.name}"')
-					
+
 					movie_data = {
 						'name': movie.name
 					}
@@ -481,19 +511,12 @@ class ScrapeController:
 		scene_tag_ids = [t.id for t in scene.tags]
 		update_data['tag_ids'] = self.__merge_tags(scene_tag_ids, update_data.get('tag_ids'))
 
-		# Update scene with scraped scene data
-		try:
-			self.client.update_scene(update_data)
-		except Exception as e:
-			log.error('Error updating scene')
-			log.error(json.dumps(update_data))
-			log.error(str(e))
+		self.client.update_scene(update_data)
 
-		return True
 	def __update_scenes_with_stashbox_data(self, scenes, scraped_data, stashbox):
 
 		# will match durations -/+ this value
-		allowed_durr_diff = 25 
+		allowed_durr_diff = 25
 
 		# % of matching fingerprints required to match
 		durr_match_percnt = 0.9
@@ -533,7 +556,7 @@ class ScrapeController:
 					durr_diff = abs(scene.get('file').get('duration') - fingerprint.get('duration'))
 					if durr_diff <= allowed_durr_diff:
 						id_match.duration += 1
-				
+
 				if (id_match.oshash or id_match.phash) and (id_match.duration / id_match.fingerprint_count >= durr_match_percnt) and (id_match.fingerprint_count >= min_fingerprint_count):
 					matches.append(id_match)
 
@@ -584,30 +607,11 @@ class ScrapeController:
 			self.__update_gallery_with_scrape_data
 		)
 	def __update_gallery_with_scrape_data(self, gallery, scraped):
-
-		# Expecting ScrapedGallery {
-		# 		title
-		# 		details
-		# 		url
-		# 		date
-		# 		studio { ...scrapedSceneStudio }
-		# 		tags [ ...ScrapedSceneTag ]
-		# 		performers [ ...scrapedScenePerformer ]
-		# }
-
-		# Casting to GalleryUpdateInput {
-		# 		id
-		#     title
-		# 		details
-		# 		url
-		# 		date
-		#     rating
-		# 		organized
-		# 		scene_ids [ID!]
-		# 		studio_id
-		# 		tag_ids [ID!]
-		# 		performer_ids [ID!]
-		# }
+		# Expecting to cast ScrapedGallery to GalleryUpdateInput
+		# NOTE
+		# 	ScrapedGallery.studio: {scrapedSceneStudio} => GalleryUpdateInput.scene_ids: [ID!]
+		#   ScrapedGallery.tags: {ScrapedSceneTag} => GalleryUpdateInput.tag_ids: [ID!]
+		#   ScrapedGallery.performers: {scrapedScenePerformer} => GalleryUpdateInput.performer_ids: [ID!]
 
 		update_data = {
 			'id': gallery.get('id')
@@ -622,7 +626,7 @@ class ScrapeController:
 		for attr in common_attrabutes:
 			if scraped[attr]:
 				update_data[attr] = scraped[attr]
-		
+
 		if scraped.tags:
 			tag_ids = list()
 			for tag in scraped.tags:
@@ -663,16 +667,7 @@ class ScrapeController:
 		gallery_tag_ids = [t.id for t in gallery.tags]
 		update_data['tag_ids'] = self.__merge_tags(gallery_tag_ids, update_data.get('tag_ids'))
 
-		# Update scene with scraped scene data
-		try:
-			self.client.update_gallery(update_data)
-		except Exception as e:
-			log.error('Error updating gallery')
-			log.error(json.dumps(update_data))
-			log.error(str(e))
-			return False
-
-		return True
+		self.client.update_gallery(update_data)
 
 	def __scrape_movies_with_url(self, movies):
 		return self.__scrape_with_url(
@@ -683,41 +678,14 @@ class ScrapeController:
 		)
 	def __update_movie_with_scrape_data(self, movie, scraped_data):
 
-		# Expecting  ScrapedMovie {
-		# 		name
-		# 		aliases
-		# 		duration STRING
-		# 		date
-		# 		rating
-		# 		director
-		# 		url
-		# 		synopsis
-		# 		studio {
-		# 				...scrapedMovieStudio
-		# 		}
-		# 		front_image
-		# 		back_image
-		# }
-
-		# Casting to MovieUpdateInput {
-		# 		id
-		#     name
-		# 		aliases
-		# 		duration INT
-		# 		date
-		# 		rating
-		#     studio_id
-		# 		director
-		# 		url
-		# 		synopsis
-		# 		front_image
-		# 		back_image
-		# }
+		# Expecting to cast ScrapedMovie to MovieUpdateInput
+		# NOTE
+		# 	ScrapedMovie.duration: String (HH:MM:SS) => MovieUpdateInput.duration: Int (Total Seconds)
+		# 	ScrapedMovie.studio: {ScrapedMovieStudio} => MovieUpdateInput.studio_id: ID
 
 		update_data = {
 			'id': movie.id
 		}
-
 		common_attrabutes = [
 			'name',
 			'aliases',
@@ -729,27 +697,70 @@ class ScrapeController:
 			'front_image',
 			'back_image'
 		]
+		for attr in common_attrabutes:
+			if scraped_data[attr]:
+				update_data[attr] = scraped_data[attr]
+
 		# here because durration value from scraped movie is string where update preferrs an int need to cast to and int (seconds)
 		# if scraped_data.duration:
 		# 	h,m,s = scraped_data.duration.split(':')
 		# 	durr = datetime.timedelta(hours=int(h),minutes=int(m),seconds=int(s)).total_seconds()
 		# 	update_data['duration'] = int(durr)
 
-		for attr in common_attrabutes:
-			if scraped_data[attr]:
-				update_data[attr] = scraped_data[attr]
-
 		if scraped_data.studio:
 			update_data['studio_id'] = scraped_data.studio.id
 
-		try:
-			self.client.update_movie(update_data)
-		except Exception as e:
-			log.error('error updateing movie')			
-			log.error(str(e))
-			return False
+		self.client.update_movie(update_data)
 
-		return True
+	def __scrape_performers_with_url(self, performers):
+		return self.__scrape_with_url(
+			"performer",
+			performers,
+			self.client.scrape_performer_url,
+			self.__update_performer_with_scrape_data
+		)
+	def __update_performer_with_scrape_data(self, performer, scraped):
+		# Expecting to cast ScrapedPerformer to PerformerUpdateInput
+		# NOTE
+		# 	ScrapedPerformer.gender: String () => PerformerUpdateInput.gender: GenderENUM ()
+		#   ScrapedPerformer.weight: String () => PerformerUpdateInput.weight: Int ()
+
+		update_data = {
+			'id': performer.id
+		}
+
+		common_attrabutes = [
+			'name',
+			'url',
+			'birthdate',
+			'ethnicity',
+			'country',
+			'eye_color',
+			'height',
+			'measurements',
+			'fake_tits',
+			'career_length',
+			'tattoos',
+			'piercings',
+			'aliases',
+			'twitter',
+			'instagram',
+			'image',
+			'rating',
+			'details',
+			'death_date',
+			'hair_color'
+		]
+		for attr in common_attrabutes:
+			if scraped[attr]:
+				update_data[attr] = scraped[attr]
+
+		if scraped.studio:
+			update_data['studio_id'] = scraped.studio.id
+
+		self.client.update_performer(update_data)
+
+
 
 	def __merge_tags(self, old_tag_ids, new_tag_ids):
 		merged_tags = set()
