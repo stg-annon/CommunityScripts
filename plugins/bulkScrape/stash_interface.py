@@ -130,7 +130,7 @@ class StashInterface:
         result = self.__callGraphQL(query)
         return result['configuration']['general']['stashBoxes']
 
-    def get_tag_id_from_name(self, name):
+    def find_tag_id(self, name):
         for tag in self.find_tags(q=name):
             if tag["name"] == name:
                 return tag["id"]
@@ -212,23 +212,28 @@ class StashInterface:
 
         result = self.__callGraphQL(query, variables)
         return result['findPerformers']['performers']
-    def find_or_create_performer(self, performer_data):
+    def find_performer(self, performer_data, create_missing=False):
+        if not performer_data.get("name"):
+            return None
         name = performer_data["name"]
 
         performers = self.find_performers(q=name)
 
         for p in performers:
             if p.get('name').lower() == name.lower():
-                return p
+                return p.id
             if p.get('name').lower() in p.get('aliases').lower():
-                return p
+                return p.id
 
-        return self.create_performer(performer_data)
+        if create_missing:
+            log.info(f'Create missing performer: "{name}"')
+            return self.create_performer(performer_data)
+
     def create_performer(self, performer_data):
         query = """
             mutation($input: PerformerCreateInput!) {
                 performerCreate(input: $input) {
-                    id
+                    ...stashPerformer
                 }
             }
         """
@@ -236,7 +241,7 @@ class StashInterface:
         variables = {'input': performer_data}
 
         result = self.__callGraphQL(query, variables)
-        return result.get('performerCreate').get('id')
+        return result.get('performerCreate')
     def update_performer(self, performer_data):
         query = """
             mutation performerUpdate($input:PerformerUpdateInput!) {
@@ -512,24 +517,6 @@ class StashInterface:
         scenes = result['findScenes']['scenes']
 
         return scenes
-    def find_scenes_with_tag(self, tag):
-        tag_id = None
-        if tag.get('id'):
-            tag_id = tag['id']
-        elif tag.get('name'):
-            tag_id = self.get_tag_id_from_name(tag['name'])
-
-        if not tag_id:
-            log.error(f'could not find tag {tag}')
-            return []
-
-        scene_filter = {
-            "tags": {
-                "value": [tag_id],
-                "modifier": "INCLUDES"
-            }
-        }
-        return self.find_scenes(f=scene_filter)
 
 
     def update_gallery(self, gallery_data):
@@ -569,24 +556,6 @@ class StashInterface:
 
         result = self.__callGraphQL(query, variables)
         return result['findGalleries']['galleries']
-    def find_galleries_with_tag(self, tag):
-        tag_id = None
-        if tag.get('id'):
-            tag_id = tag['id']
-        elif tag.get('name'):
-            tag_id = self.get_tag_id_from_name(tag['name'])
-
-        if not tag_id:
-            log.error(f'could not find tag {tag}')
-            return []
-
-        gallery_filter = {
-            "tags": {
-                "value": [tag_id],
-                "modifier": "INCLUDES"
-            }
-        }
-        return self.find_galleries(f=gallery_filter)
 
     # Stash Box
     def stashbox_scene_scraper(self, scene_ids, stashbox_index=0):
@@ -677,6 +646,44 @@ class StashInterface:
 
         result = self.__callGraphQL(query, variables)
         return result["scrapeGallery"]
+
+    def run_performer_scraper(self, performer, scraper):
+        
+        query = """query ScrapePerformer($scraper_id: ID!, $performer: ScrapedPerformerInput!) {
+           scrapePerformer(scraper_id: $scraper_id, performer: $performer) {
+              ...scrapedPerformer
+            }
+          }
+        """
+        variables = {
+            "scraper_id": scraper,
+            "performer": {
+            "name": performer["name"],
+            "gender": None,
+            "url": performer["url"],
+            "twitter": None,
+            "instagram": None,
+            "birthdate": None,
+            "ethnicity": None,
+            "country": None,
+            "eye_color": None,
+            "height": None,
+            "measurements": None,
+            "fake_tits": None,
+            "career_length": None,
+            "tattoos": None,
+            "piercings": None,
+            "aliases": None,
+            "tags": None,
+            "image": None,
+            "details": None,
+            "death_date": None,
+            "hair_color": None,
+            "weight": None,
+        }
+        }
+        result = self.__callGraphQL(query, variables)
+        return result["scrapePerformer"]
 
     # URL Scrape
     def scrape_scene_url(self, url):
