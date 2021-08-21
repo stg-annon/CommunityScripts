@@ -215,15 +215,19 @@ class StashInterface:
     def find_performer(self, performer_data, create_missing=False):
         if not performer_data.get("name"):
             return None
+
         name = performer_data["name"]
+        name = name.strip()
+
+        performer_data["name"] = name
 
         performers = self.find_performers(q=name)
 
         for p in performers:
-            if p.get('name').lower() == name.lower():
-                return p.id
-            if p.get('name').lower() in p.get('aliases').lower():
-                return p.id
+            if p.name.lower() == name.lower():
+                return p
+            if p.aliases and p.name.lower() in p.aliases.lower():
+                return p
 
         if create_missing:
             log.info(f'Create missing performer: "{name}"')
