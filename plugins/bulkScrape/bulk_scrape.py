@@ -2,8 +2,10 @@ import json
 import sys
 import time
 import datetime
+import traceback
 from urllib.parse import urlparse
 from types import SimpleNamespace
+
 
 import log
 from stash_interface import StashInterface
@@ -384,6 +386,7 @@ class ScrapeController:
 				log.debug(f"Updated data for {scrape_type} {item.get('id')}")
 				count += 1
 			except Exception as e:
+				log.error(traceback.format_exc(e.__traceback__))
 				log.error(f"Error updating {scrape_type} {item.get('id')}")
 				log.error(str(e))
 
@@ -497,7 +500,7 @@ class ScrapeController:
 						perf_in['url'] = performer.url 
 						
 					stash_perf = self.client.find_performer(perf_in, create_missing=config.create_missing_performers)
-					if stash_perf:
+					if stash_perf and stash_perf.get("id"):
 						performer_ids.append(stash_perf.id)
 					
 			if len(performer_ids) > 0:
