@@ -497,7 +497,7 @@ class ScrapeController:
 						perf_in['url'] = performer.url 
 						
 					stash_perf = self.client.find_performer(perf_in, create_missing=config.create_missing_performers)
-					if stash_perf.get('id'):
+					if stash_perf:
 						performer_ids.append(stash_perf.id)
 					
 			if len(performer_ids) > 0:
