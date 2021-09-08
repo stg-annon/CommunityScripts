@@ -862,18 +862,10 @@ stash_gql_fragments = {
             url
             synopsis
             studio {
-                ...scrapedMovieStudio
+                ...scrapedStudio
             }
             front_image
             back_image
-            __typename
-        }
-    """,
-    "scrapedMovieStudio":"""
-        fragment scrapedMovieStudio on ScrapedMovieStudio {
-            id
-            name
-            url
             __typename
         }
     """,
