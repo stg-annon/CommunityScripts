@@ -757,14 +757,14 @@ stash_gql_fragments = {
             bitrate
           }
           studio{
-            ...scrapedSceneStudio
+            ...scrapedStudio
           }
-          tags{ ...scrapedSceneTag }
+          tags{ ...scrapedTag }
           performers{
-            ...scrapedScenePerformer
+            ...scrapedPerformer
           }
           movies{
-            ...scrapedSceneMovie
+            ...scrapedMovie
           }
           remote_site_id
           duration
@@ -783,17 +783,17 @@ stash_gql_fragments = {
           url
           date
           studio{
-            ...scrapedSceneStudio
+            ...scrapedStudio
           }
-          tags{ ...scrapedSceneTag }
+          tags{ ...scrapedTag }
           performers{
-            ...scrapedScenePerformer
+            ...scrapedPerformer
           }
           __typename
         }
     """,
-    "scrapedScenePerformer":"""
-        fragment scrapedScenePerformer on ScrapedScenePerformer {
+    "scrapedPerformer":"""
+        fragment scrapedPerformer on ScrapedPerformer {
           stored_id
           name
           gender
@@ -811,25 +811,25 @@ stash_gql_fragments = {
           tattoos
           piercings
           aliases
-          tags { ...scrapedSceneTag }
-          remote_site_id
+          tags { ...scrapedTag }
           images
           details
           death_date
           hair_color
           weight
+          remote_site_id
           __typename
         }
     """,
-    "scrapedSceneTag": """
-        fragment scrapedSceneTag on ScrapedSceneTag {
+    "scrapedTag": """
+        fragment scrapedTag on ScrapedTag {
             stored_id
             name
             __typename
         }
     """,
-    "scrapedSceneMovie": """
-        fragment scrapedSceneMovie on ScrapedSceneMovie {
+    "scrapedMovie": """
+        fragment scrapedMovie on ScrapedMovie {
             stored_id
             name
             aliases
@@ -842,39 +842,12 @@ stash_gql_fragments = {
             __typename
         }
     """,
-    "scrapedSceneStudio": """
-        fragment scrapedSceneStudio on ScrapedSceneStudio {
+    "scrapedStudio": """
+        fragment scrapedStudio on ScrapedStudio {
             stored_id
             name
             url
             remote_site_id
-            __typename
-        }
-    """,
-    "scrapedPerformer":"""
-        fragment scrapedPerformer on ScrapedPerformer {
-            name
-            gender
-            url
-            twitter
-            instagram
-            birthdate
-            ethnicity
-            country
-            eye_color
-            height
-            measurements
-            fake_tits
-            career_length
-            tattoos
-            piercings
-            aliases
-            tags { ...scrapedSceneTag }
-            image
-            details
-            death_date
-            hair_color
-            weight
             __typename
         }
     """,
