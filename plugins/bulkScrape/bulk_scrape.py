@@ -160,6 +160,7 @@ class ScrapeController:
 			scenes = self.client.find_scenes(f={
 				"tags": {
 					"value": [tag_id],
+					"depth": 0,
 					"modifier": "INCLUDES"
 				},
 				"url": {
@@ -234,6 +235,7 @@ class ScrapeController:
 						scenes = self.client.find_scenes(f={
 							"tags": {
 								"value": [tag_id],
+								"depth": 0,
 								"modifier": "INCLUDES"
 							}
 						})
@@ -282,6 +284,7 @@ class ScrapeController:
 		scenes = self.client.find_scenes(f={
 			"tags": {
 				"value": [tag_id],
+				"depth": 0,
 				"modifier": "INCLUDES"
 			}
 		})
