@@ -841,6 +841,11 @@ stash_gql_fragments = {
             director
             synopsis
             url
+            studio {
+                ...scrapedStudio
+            }
+            front_image
+            back_image
             __typename
         }
     """,
@@ -850,24 +855,6 @@ stash_gql_fragments = {
             name
             url
             remote_site_id
-            __typename
-        }
-    """,
-    "scrapedMovie":"""
-        fragment scrapedMovie on ScrapedMovie {
-            name
-            aliases
-            duration
-            date
-            rating
-            director
-            url
-            synopsis
-            studio {
-                ...scrapedStudio
-            }
-            front_image
-            back_image
             __typename
         }
     """,
