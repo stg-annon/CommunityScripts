@@ -178,6 +178,7 @@ class ScrapeController:
 			galleries = self.client.find_galleries(f={
 				"tags": {
 					"value": [tag_id],
+					"depth": 0,
 					"modifier": "INCLUDES"
 				},
 				"url": {
@@ -195,6 +196,7 @@ class ScrapeController:
 			performers = self.client.find_performers(f={
 				"tags": {
 					"value": [tag_id],
+					"depth": 0,
 					"modifier": "INCLUDES"
 				},
 				"url": {
@@ -248,6 +250,7 @@ class ScrapeController:
 						galleries = self.client.find_galleries(f={
 							"tags": {
 								"value": [tag_id],
+								"depth": 0,
 								"modifier": "INCLUDES"
 							}
 						})
@@ -260,6 +263,7 @@ class ScrapeController:
 						performers = self.client.find_performers(f={
 							"tags": {
 								"value": [tag_id],
+								"depth": 0,
 								"modifier": "INCLUDES"
 							}
 						})
