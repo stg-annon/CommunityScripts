@@ -759,7 +759,9 @@ stash_gql_fragments = {
           studio{
             ...scrapedStudio
           }
-          tags{ ...scrapedTag }
+          tags{
+            ...scrapedTag
+          }
           performers{
             ...scrapedPerformer
           }

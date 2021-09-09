@@ -394,7 +394,7 @@ class ScrapeController:
 				count += 1
 			except Exception as e:
 				log.error(traceback.format_exc(e.__traceback__))
-				log.error(f"Error updating {scrape_type} {item.get('id')}")
+				log.error(f"Fragment Scrape could not update {scrape_type} {item.get('id')}")
 				log.error(str(e))
 
 		return count
@@ -446,7 +446,8 @@ class ScrapeController:
 				log.debug(f"Updated data for {scrape_type} {item.get('id')}")
 				count += 1
 			except Exception as e:
-				log.error(f"Error updating {scrape_type} {item.get('id')}")
+				log.error(traceback.format_exc(e.__traceback__))
+				log.error(f"URL Scrape could not update {scrape_type} {item.get('id')}")
 				log.error(str(e))
 
 		return count
