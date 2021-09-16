@@ -1,0 +1,7 @@
+version: 1
+updates:
+  # Maintain submodules
+  - package-ecosystem: "gitsubmodule"
+    directory: "/"
+    schedule:
+      interval: "daily"
