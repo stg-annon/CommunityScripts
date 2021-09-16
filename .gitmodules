@@ -1,0 +1,4 @@
+[submodule "plugins/bulkScrape"]
+	path = plugins/bulkScrape
+	url = https://github.com/stg-annon/StashBulkScrape.git
+	update = merge
