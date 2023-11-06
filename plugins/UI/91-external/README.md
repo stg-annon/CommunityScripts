@@ -14,3 +14,9 @@
 - https://gist.github.com/peolic/7368022947a28ef11bf44d0ae802df45
 - https://github.com/peolic/userscripts
 - https://github.com/halorrr/userscripts
+
+## other
+- https://github.com/elkorol/Stash-App-Script-Video-JS-CopySave
+  - heavily dependent on GM_Download & canvas copying
+- https://github.com/elkorol/Stash-App-Script-Alphabet-Selector
+  - broken on develop
