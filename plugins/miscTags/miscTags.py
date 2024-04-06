@@ -33,6 +33,13 @@ VRCTags = {
 }
 tags_cache = {}
 
+SCENE_FRAGMENT = """
+id
+title
+studio {id name}
+tag {id name}
+files { basename }
+"""
 
 def processScene(scene):
     log.debug("processing scene: %s" % (scene["id"],))
@@ -127,10 +134,10 @@ def processFlatStudio(scene, tags):
 
 
 def processScenes():
-    log.info("Getting scene count")
+    log.info("Getting scenes to process...")
     if skip_tag not in tags_cache:
         tags_cache[skip_tag] = stash.find_tag(skip_tag, create=True).get("id")
-    count = stash.find_scenes(
+    count, scenes = stash.find_scenes(
         f={
             "tags": {
                 "depth": 0,
@@ -139,36 +146,15 @@ def processScenes():
                 "value": [],
             }
         },
-        filter={"per_page": 1},
+        filter={"per_page": -1},
         get_count=True,
-    )[0]
-    log.info(str(count) + " scenes to process.")
-    i = 0
-    for r in range(1, int(count / per_page) + 2):
-        log.info(
-            "adding tags to scenes: %s - %s %0.1f%%"
-            % (
-                (r - 1) * per_page,
-                r * per_page,
-                (i / count) * 100,
-            )
-        )
-        scenes = stash.find_scenes(
-            f={
-                "tags": {
-                    "depth": 0,
-                    "excludes": [tags_cache[skip_tag]],
-                    "modifier": "INCLUDES_ALL",
-                    "value": [],
-                }
-            },
-            filter={"page": r, "per_page": per_page},
-        )
-        for s in scenes:
-            processScene(s)
-            i = i + 1
-            log.progress((i / count))
-            time.sleep(1)
+        fragment=SCENE_FRAGMENT
+    )
+    log.info(f"Found {count} scenes to process.")
+    for i, s in enumerate(scenes):
+        processScene(s)
+        log.progress((i / count))
+        time.sleep(1)
 
 
 json_input = json.loads(sys.stdin.read())
