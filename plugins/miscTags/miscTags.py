@@ -37,7 +37,7 @@ SCENE_FRAGMENT = """
 id
 title
 studio {id name}
-tag {id name}
+tags {id name}
 files { basename }
 """
 
